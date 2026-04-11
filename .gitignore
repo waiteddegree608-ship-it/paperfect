@@ -1,0 +1,11 @@
+imports/*
+!imports/.gitkeep
+papers/*
+!papers/.gitkeep
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.env
+.DS_Store
+config.json

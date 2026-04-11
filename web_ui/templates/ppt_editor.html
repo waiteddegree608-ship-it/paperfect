@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>PPT 智改引擎 - {{ book_name }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0; padding: 0;
+            display: flex; flex-direction: column; height: 100vh;
+            background: #ffffff;
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: #1a1b1e;
+            overflow: hidden;
+        }
+
+        /* 顶部工具栏 (模拟 pptx-main 的沉浸式顶部) */
+        .toolbar {
+            height: 56px;
+            background: #ffffff;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            flex-shrink: 0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .toolbar-title {
+            font-weight: 600;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #2c2e33;
+        }
+        .logo {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .toolbar-actions {
+            display: flex;
+            gap: 12px;
+        }
+        .btn {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #495057;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover { background: #e9ecef; }
+        .btn-primary {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+        .btn-primary:hover { background: #2563eb; }
+
+        .editor-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            background: #f1f3f5;
+        }
+
+        /* 左侧侧边栏：幻灯片大纲导航 */
+        .sidebar {
+            width: 240px;
+            background: #ffffff;
+            border-right: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        .sidebar-header {
+            padding: 15px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #868e96;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .slide-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .slide-thumb {
+            aspect-ratio: 16/9;
+            background: #f8f9fa;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: 0.2s;
+        }
+        .slide-thumb img { width: 100%; height: 100%; object-fit: contain; }
+        .slide-thumb.active { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+        .slide-num {
+            position: absolute; top: 6px; left: 6px;
+            background: rgba(0,0,0,0.5); color: white;
+            font-size: 11px; padding: 2px 6px; border-radius: 4px;
+        }
+
+        /* 中间无边界画布区域 */
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            overflow: auto;
+        }
+        .canvas-wrapper {
+            background: #ffffff;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            border-radius: 4px;
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 16/9;
+            width: 800px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .canvas-wrapper img {
+            width: 100%; height: 100%; border-radius: 4px; object-fit: contain;
+        }
+
+        /* 骨架屏加载动画 */
+        .skeleton {
+            background: linear-gradient(90deg, #f1f3f5 25%, #e9ecef 50%, #f1f3f5 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* 右侧属性面板 (文本重构) */
+        .property-panel {
+            width: 320px;
+            background: #ffffff;
+            border-left: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.02);
+        }
+        .panel-header {
+            padding: 16px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border-bottom: 1px solid #e9ecef;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .panel-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .shape-block {
+            display: flex; flex-direction: column; gap: 8px;
+            border: 1px solid #e9ecef;
+            padding: 12px;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        .shape-label {
+            font-size: 12px;
+            color: #868e96;
+            font-weight: 500;
+        }
+        .shape-editor {
+            width: 100%;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 40px;
+            box-sizing: border-box;
+            background: #fff;
+            transition: 0.2s;
+        }
+        .shape-editor:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #ced4da; }
+        
+        .loading-overlay {
+            position: absolute; inset: 0; background: rgba(255,255,255,0.8);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 600; font-size: 18px; color: #3b82f6; backdrop-filter: blur(2px);
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <div class="toolbar-title">
+            <span class="logo">AI PPT</span>
+            <span>{{ book_name }}</span>
+        </div>
+        <div class="toolbar-actions">
+            <button class="btn" onclick="fetchPptData()">刷新同步</button>
+            <button class="btn btn-primary" id="save-btn" onclick="savePptData()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                保存并重渲染 PPT
+            </button>
+        </div>
+    </div>
+
+    <div class="editor-container">
+        <!-- 左侧大纲 -->
+        <div class="sidebar">
+            <div class="sidebar-header">幻灯片导航</div>
+            <div class="slide-list" id="slide-list">
+                <!-- 生成侧边栏 -->
+            </div>
+        </div>
+
+        <!-- 中心画布 -->
+        <div class="canvas-area">
+            <div class="canvas-wrapper skeleton" id="canvas-wrapper">
+                <img id="main-canvas-img" src="" style="display: none;" />
+                <div id="render-loading" class="loading-overlay" style="display: none;">正在底稿渲染...</div>
+            </div>
+        </div>
+
+        <!-- 右侧文本编辑器 -->
+        <div class="property-panel">
+            <div class="panel-header">
+                内容重构面板
+                <span id="current-slide-label" style="font-size: 12px; color: #868e96;">--</span>
+            </div>
+            <div class="panel-content" id="property-list">
+                <div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">
+                    请先在左侧选择一页需要编辑的幻灯片
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const bookName = "{{ book_name }}";
+        let pptData = []; // [{slide_idx: 0, image: "base64", shapes: [{id: 0, text: ""}]}]
+        let currentSlideIdx = -1;
+
+        async function fetchPptData() {
+            document.getElementById("canvas-wrapper").classList.add("skeleton");
+            document.getElementById("main-canvas-img").style.display = "none";
+            document.getElementById("slide-list").innerHTML = "";
+            document.getElementById("property-list").innerHTML = `<div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">正在解析底层 PPTX 文档...</div>`;
+            
+            try {
+                const res = await fetch(`/api/ppt/data/${encodeURIComponent(bookName)}`);
+                const json = await res.json();
+                if(json.error) {
+                    alert(json.error); return;
+                }
+                pptData = json.slides;
+                renderSlideList();
+                if(pptData.length > 0) {
+                    selectSlide(0);
+                }
+            } catch (e) {
+                alert("获取 PPT 数据失败：" + e);
+            }
+        }
+
+        function renderSlideList() {
+            const container = document.getElementById("slide-list");
+            container.innerHTML = "";
+            pptData.forEach((slide, i) => {
+                const thumb = document.createElement("div");
+                thumb.className = "slide-thumb";
+                thumb.id = `thumb-${i}`;
+                thumb.onclick = () => selectSlide(i);
+                
+                const badge = document.createElement("div");
+                badge.className = "slide-num";
+                badge.innerText = i + 1;
+                
+                const img = document.createElement("img");
+                img.src = "data:image/png;base64," + slide.image;
+                
+                thumb.appendChild(badge);
+                thumb.appendChild(img);
+                container.appendChild(thumb);
+            });
+        }
+
+        function selectSlide(idx) {
+            currentSlideIdx = idx;
+            // UI effect
+            document.querySelectorAll(".slide-thumb").forEach(t => t.classList.remove("active"));
+            document.getElementById(`thumb-${idx}`).classList.add("active");
+            
+            // Render canvas
+            document.getElementById("canvas-wrapper").classList.remove("skeleton");
+            const mainImg = document.getElementById("main-canvas-img");
+            mainImg.src = "data:image/png;base64," + pptData[idx].image;
+            mainImg.style.display = "block";
+            
+            // Render properties
+            document.getElementById("current-slide-label").innerText = `第 ${idx + 1} 页`;
+            const propContainer = document.getElementById("property-list");
+            propContainer.innerHTML = "";
+            
+            const shapes = pptData[idx].shapes;
+            if (shapes.length === 0) {
+                propContainer.innerHTML = `<div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">本页没有提取到可编辑文本块</div>`;
+                return;
+            }
+
+            shapes.forEach((shape, sIdx) => {
+                const block = document.createElement("div");
+                block.className = "shape-block";
+                
+                const label = document.createElement("div");
+                label.className = "shape-label";
+                label.innerText = `文本框 ${sIdx + 1}`;
+                
+                const textarea = document.createElement("textarea");
+                textarea.className = "shape-editor";
+                textarea.value = shape.text;
+                // auto resize height
+                textarea.style.height = (textarea.scrollHeight > 40 ? textarea.scrollHeight : 40) + "px";
+                textarea.oninput = function() {
+                    this.style.height = 'auto';
+                    this.style.height = this.scrollHeight + 'px';
+                    shape.text = this.value; // Store the edited value automatically
+                }
+                
+                block.appendChild(label);
+                block.appendChild(textarea);
+                propContainer.appendChild(block);
+            });
+        }
+
+        async function savePptData() {
+            const btn = document.getElementById("save-btn");
+            const loading = document.getElementById("render-loading");
+            
+            btn.innerText = "玩命注入保存中...";
+            btn.disabled = true;
+            loading.style.display = "flex";
+            
+            try {
+                // We send ONLY the text edits payload back
+                const payload = pptData.map(slide => ({
+                    slide_idx: slide.slide_idx,
+                    shapes: slide.shapes
+                }));
+                
+                const res = await fetch(`/api/ppt/save/${encodeURIComponent(bookName)}`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ slides: payload })
+                });
+                
+                const json = await res.json();
+                if(json.error) {
+                    alert("保存失败: " + json.error);
+                } else {
+                    // Success! Re-fetch to get new generated images
+                    await fetchPptData();
+                }
+            } catch (e) {
+                alert("保存失败：" + e);
+            } finally {
+                btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 保存并重渲染 PPT`;
+                btn.disabled = false;
+                loading.style.display = "none";
+            }
+        }
+
+        // Init
+        window.addEventListener("DOMContentLoaded", fetchPptData);
+    </script>
+</body>
+</html>
