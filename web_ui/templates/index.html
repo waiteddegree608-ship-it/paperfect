@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Paperfect</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* GitHub Dark (Default Dark) Fallback -> Will fallback to One Dark */
+        :root {
+            --bg-color: #282C34;
+            --text-color: #ABB2BF;
+            --header-bg: #194A50;
+            --header-border: #21252B;
+            --card-bg: #21252B;
+            --card-border: #21252B;
+            --card-hover-border: #3D71D9;
+            --primary-accent: #3D71D9; 
+            --primary-hover: #3D71D9;
+            --secondary-accent: #3D71D9; 
+            --secondary-hover: #3D71D9;
+            --danger-color: #3D71D9;
+            --upload-accent: #3D71D9;
+            --text-muted: #ABB2BF;
+            --input-bg: #21252B;
+            --icon-btn-bg: #21252B;
+            --modal-bg: #21252B;
+            --header-icon-color: #ABB2BF;
+            --logo-color: #ABB2BF;
+        }
+
+        body[data-theme="antigravity"] {
+            --bg-color: #16161D; --text-color: #878AA2; --header-bg: #1A1B25; --header-border: #1A1B25;
+            --card-bg: #1A1B25; --card-border: #1A1B25; --card-hover-border: #6E88BD;
+            --primary-accent: #6E88BD; --primary-hover: #88D6CC; --secondary-accent: #88D6CC; --secondary-hover: #88D6CC;
+            --danger-color: #DF5953; --upload-accent: #6E88BD; --text-muted: #878AA2;
+            --input-bg: #1A1B25; --icon-btn-bg: #1A1B25; --modal-bg: #1A1B25;
+            --header-icon-color: #878AA2;
+            --logo-color: #878AA2;
+        }
+
+        body[data-theme="dark-plus"] {
+            --bg-color: #1E1E1E; --text-color: #CCCCCC; --header-bg: #1B4D54; --header-border: #181818;
+            --card-bg: #181818; --card-border: #181818; --card-hover-border: #004F8B;
+            --primary-accent: #004F8B; --primary-hover: #004F8B; --secondary-accent: #004F8B; --secondary-hover: #004F8B;
+            --danger-color: #004F8B; --upload-accent: #004F8B; --text-muted: #CCCCCC;
+            --input-bg: #181818; --icon-btn-bg: #181818; --modal-bg: #181818;
+            --header-icon-color: #CCCCCC;
+            --logo-color: #CCCCCC;
+        }
+
+        body[data-theme="cyan-light"] {
+            --bg-color: #FFFFFF; --text-color: #202224; --header-bg: #8EE8E6; --header-border: #F4F7F9;
+            --card-bg: #F4F7F9; --card-border: #F4F7F9; --card-hover-border: #39B2B2;
+            --primary-accent: #39B2B2; --primary-hover: #39B2B2; --secondary-accent: #39B2B2; --secondary-hover: #39B2B2;
+            --danger-color: #39B2B2; --upload-accent: #39B2B2; --text-muted: #202224;
+            --input-bg: #F4F7F9; --icon-btn-bg: #F4F7F9; --modal-bg: #F4F7F9;
+            --header-icon-color: #202224;
+            --logo-color: #202224;
+        }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif; 
+            margin: 0; padding: 40px; 
+            min-height: 100vh;
+            background: var(--bg-color);
+            color: var(--text-color);
+            box-sizing: border-box;
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        .header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 40px; border-bottom: 2px solid var(--header-border); padding-bottom: 20px;
+        }
+            justify-content: space-between;
+            margin-bottom: 40px; 
+            padding: 20px 30px;
+            background: var(--header-bg);
+            border-radius: 16px; 
+            border: 1px solid var(--header-border);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary-accent);
+        }
+        
+        .add-btn { 
+            background: var(--primary-accent); 
+            border: none; 
+            padding: 10px 28px; 
+            border-radius: 8px; 
+            font-size: 14px;
+            font-weight: 600; 
+            cursor: pointer; 
+            color: #fff; 
+            transition: all 0.2s ease;
+        }
+        
+        .add-btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+        }
+        
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); 
+            gap: 30px; 
+        }
+        
+        .card { 
+            position: relative;
+            background: var(--card-bg); 
+            border: 1px solid var(--card-border);
+            border-radius: 16px; 
+            display: flex; 
+            flex-direction: column; 
+            cursor: pointer; 
+            transition: all 0.3s;
+            height: 340px;
+            overflow: hidden;
+        }
+        
+        .card:hover { 
+            transform: translateY(-10px); 
+            border-color: var(--card-hover-border);
+        }
+        
+        /* 封面区域加一层内阴影遮罩让它看起来更立体 */
+        .cover-wrapper {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+            background: #111;
+        }
+
+        .cover { 
+            width: 100%; 
+            height: 100%;
+            object-fit: cover; 
+            object-position: top;
+            transition: transform 0.6s ease;
+        }
+        
+        .card:hover .cover {
+            transform: scale(1.05);
+        }
+        
+        .title { 
+            background: var(--card-bg); 
+            color: var(--text-color); 
+            padding: 16px 14px; 
+            font-size: 14px; 
+            font-weight: 500; 
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden; 
+            border-top: 1px solid var(--card-border);
+        }
+
+        /* 无内容时的空视图样式 */
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 80px 20px;
+            color: #94a3b8;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.01);
+            border-radius: 16px;
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+        }
+        
+        /* 正在处理状态卡片 */
+        .card.processing {
+            pointer-events: none; opacity: 0.8;
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.2);
+            align-items: center; justify-content: center;
+            padding: 20px; text-align: center;
+        }
+        .spinner {
+            width: 46px; height: 46px; border: 4px solid rgba(255, 255, 255, 0.05);
+            border-top: 4px solid #60a5fa; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .processing-text { line-height: 1.5; font-size: 13px; color: #94a3b8; font-weight: 500;}
+        .processing-title { font-size: 15px; color: #fff; margin-top: 8px; font-weight: 600;}
+        
+        /* 设置面板模态框 */
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 100;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        
+        .modal-content {
+            background: var(--modal-bg);
+            border: 1px solid var(--header-border);
+            border-radius: 20px;
+            padding: 30px;
+            width: 500px;
+            max-width: 90vw;
+            max-height: 85vh;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .modal-content { transform: translateY(0); }
+        
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--header-border);
+            padding-bottom: 15px;
+        }
+        .header-left {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .project-logo {
+            width: 75px; height: 75px;
+            background-color: var(--logo-color);
+            -webkit-mask-image: url('/static/paperfect_logo.png');
+            -webkit-mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            -webkit-mask-position: center left;
+            mask-image: url('/static/paperfect_logo.png');
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center left;
+            transition: background-color 0.3s ease;
+        }
+        .modal-header h2 { margin: 0; font-size: 20px; color: var(--text-color); }
+        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; }
+        .close-btn:hover { color: var(--text-color); }
+        
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+        .form-group input, .form-group select {
+            width: 100%; box-sizing: border-box;
+            background: var(--input-bg);
+            border: 1px solid var(--header-border);
+            color: var(--text-color); padding: 10px 12px;
+            border-radius: 8px; font-family: 'Inter', sans-serif;
+            outline: none; transition: border-color 0.2s;
+        }
+        .form-group input:focus { border-color: var(--primary-accent); }
+        
+        .key-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .remove-key-btn { 
+            background: var(--input-bg); border: 1px solid var(--danger-color); 
+            color: var(--danger-color); border-radius: 8px; width: 40px; cursor: pointer; transition: 0.2s;
+            display: flex; align-items: center; justify-content: center; font-size: 18px;
+        }
+        .remove-key-btn:hover { background: var(--danger-color); color: #fff; }
+        .add-key-btn {
+            background: var(--input-bg); border: 1px dashed var(--primary-accent);
+            color: var(--primary-accent); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+            width: 100%; transition: 0.2s; font-family: 'Inter'; font-weight: 500;
+        }
+        .add-key-btn:hover { background: var(--primary-accent); color: #fff; border-style: solid; }
+
+        .form-section-title { font-size: 14px; font-weight: 600; color: var(--primary-accent); margin: 25px 0 10px; }
+        
+        .save-btn {
+            width: 100%; background: var(--secondary-accent);
+            border: none; padding: 12px; border-radius: 8px; color: #fff;
+            font-weight: 600; cursor: pointer; margin-top: 20px; font-size: 15px;
+            transition: background 0.2s;
+        }
+        .save-btn:hover { background: var(--secondary-hover); }
+        
+        .header-actions { display: flex; gap: 15px; align-items: center; }
+        .icon-btn {
+            background: var(--icon-btn-bg); border: 1px solid var(--header-border);
+            color: var(--text-color); border-radius: 8px; width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .icon-btn:hover { background: var(--icon-btn-hover); }
+
+        .drop-zone {
+            border: 2px dashed var(--upload-accent, var(--primary-accent)); border-radius: 16px; padding: 40px;
+            text-align: center; cursor: pointer; transition: 0.3s; background: var(--header-bg);
+            margin-bottom: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--upload-accent, var(--primary-accent)); }
+        .drop-zone p { color: var(--upload-accent, var(--primary-accent)); font-weight: 600; margin-top: 15px; }
+
+        /* custom select for header */
+        .custom-select-wrapper { position: relative; display: inline-block; }
+        .custom-select {
+            appearance: none; background: transparent; border: none; color: var(--text-color);
+            font-size: 28px; font-weight: bold; padding-right: 30px; cursor: pointer; outline: none;
+            font-family: 'Inter', sans-serif; margin:0;
+        }
+        .custom-select-wrapper::after {
+            content: '▼'; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+            font-size: 16px; color: var(--primary-accent); pointer-events: none;
+        }
+        .custom-select option { background: var(--header-bg); color: var(--text-color); font-size: 16px; }
+
+        /* prompt UI */
+        .prompt-container { display: flex; gap: 20px; height: calc(100vh - 120px); }
+        .prompt-list-pane { 
+            width: 250px; background: var(--header-bg); border: 1px solid var(--header-border);
+            border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .prompt-list-header { padding: 15px; border-bottom: 1px solid var(--header-border); display: flex; justify-content: space-between; align-items: center;}
+        .prompt-list { flex:1; overflow-y: auto; padding: 10px; display:flex; flex-direction:column; gap:8px;}
+        .prompt-item { padding: 10px 15px; border-radius: 8px; cursor: pointer; transition: 0.2s; color: var(--text-color); font-size: 14px;}
+        .prompt-item.active, .prompt-item:hover { background: var(--primary-accent); color: #fff; }
+        .prompt-editor-pane {
+            flex: 1; background: var(--header-bg); border: 1px solid var(--header-border);
+            border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .prompt-editor-header { padding: 15px 20px; border-bottom: 1px solid var(--header-border); display: flex; justify-content: space-between; align-items: center;}
+        .prompt-editor { flex:1; background: transparent; border: none; color: var(--text-color); padding: 20px; font-size: 14px; outline: none; resize: none; font-family: 'Consolas', monospace; line-height: 1.6; }
+
+        /* Manage Mode */
+        .card .card-select-layer {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.5); 
+            display: none; align-items: start; justify-content: end; padding: 10px; z-index: 10;
+        }
+        .manage-mode .card .card-select-layer { display: flex; }
+        .card-checkbox {
+            width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff;
+            background: transparent; cursor: pointer; transition: 0.2s;
+            appearance: none; -webkit-appearance: none; outline: none; margin: 0;
+        }
+        .card-checkbox:checked {
+            background: #DF5953; border-color: #DF5953;
+        }
+        .card-checkbox:checked::after {
+            content: '✓'; color: white; display:flex; align-items:center; justify-content:center;
+            width:100%; height:100%; font-size:16px; font-weight:bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <div class="project-logo" title="Paperfect"></div>
+            <div class="custom-select-wrapper">
+                <select class="custom-select" id="page_selector" onchange="switchPage()">
+                    <option value="data">资料管理</option>
+                    <option value="prompt">提示词管理</option>
+                </select>
+            </div>
+        </div>
+        <div class="header-actions">
+            <select id="themeSelector" onchange="changeTheme(this.value)" style="background: var(--input-bg); color: var(--text-color); border: 1px solid var(--header-border); border-radius: 8px; padding: 6px 12px; font-family: 'Inter'; outline: none; transition: 0.2s;">
+                <optgroup label="Core Themes">
+                    <option value="antigravity">Antigravity Neon (Custom)</option>
+                    <option value="dark-plus">Dark+</option>
+                    <option value="cyan-light">Cyan Light</option>
+                </optgroup>
+            </select>
+            <button class="icon-btn" onclick="toggleDarkLight()" title="切换昼夜模式" style="font-size:16px;">🌓</button>
+            <button class="icon-btn" id="cancel-manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter'; display: none;">取消</button>
+            <button class="icon-btn" id="manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter';">管理</button>
+            <button class="icon-btn" onclick="openSettings()" title="系统配置">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
+            <a href="https://github.com/waiteddegree608-ship-it/paperfect" target="_blank" title="前往 GitHub 项目主页" class="icon-btn" style="display:flex; align-items:center; justify-content:center; text-decoration:none; color: var(--header-icon-color);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.379.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z"/>
+                </svg>
+            </a>
+        </div>
+    </div>
+    
+    <div id="main-view">
+        <div id="drop-zone" class="drop-zone" onclick="document.getElementById('unifiedUploadInput').click()">
+            <svg id="drop-zone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--upload-accent, var(--primary-accent));"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <p>拖入 PDF 或点击此处选择文件</p>
+        </div>
+        <input type="file" id="unifiedUploadInput" accept=".pdf" style="display:none;" onchange="handleFileSelected(event)">
+
+    
+    <h2 id="books-heading" style="margin-top:0; border-bottom: 2px solid var(--header-border); padding-bottom: 15px; color: var(--primary-accent); {% if not books %}display:none;{% endif %}">教材</h2>
+    <div id="books-grid" class="grid" style="margin-bottom: 50px; {% if not books %}display:none;{% endif %}">
+        {% for book in books %}
+            {% if book.status == 'processing' %}
+            <div class="card processing" id="processing-{{ book.name }}-book">
+                <div class="spinner"></div>
+                <div class="processing-text">正在解析</div>
+                <div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">{{ book.progress }}</div>
+                <div class="processing-title">《{{ book.name }}》</div>
+            </div>
+            {% elif book.status == 'interrupted' %}
+            <div class="card interrupted" id="interrupted-{{ book.name }}-book" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
+                    <div style="margin-bottom:15px; text-align:center;">
+                        <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ book.name }}》</div>
+                    </div>
+                    <button class="resume-btn" onclick="resumeParse('{{ book.name }}', event)" style="background: var(--primary-accent); border:none; padding:8px 20px; border-radius:6px; color:var(--bg-color); font-weight:600; cursor:pointer; font-size:13px; transition:0.2s; z-index: 20;">
+                        继续
+                    </button>
+                </div>
+            </div>
+            {% else %}
+            <div class="card" onclick="handleCardClick(event, '/chat/{{ book.name }}')">
+                <div class="card-select-layer">
+                    <input type="checkbox" class="card-checkbox" value="{{ book.name }}" data-type="book" onclick="updateDeleteBtnState()">
+                </div>
+                <div class="cover-wrapper">
+                    <img class="cover" src="/cover/{{ book.name }}" alt="cover">
+                </div>
+                <div class="title" title="{{ book.name }}">{{ book.name }}</div>
+            </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <h2 id="papers-heading" style="border-bottom: 2px solid var(--header-border); padding-bottom: 15px; color: var(--secondary-accent); {% if not papers %}display:none;{% endif %}">论文</h2>
+    <div id="papers-grid" class="grid" style="{% if not papers %}display:none;{% endif %}">
+        {% for paper in papers %}
+            {% if paper.status == 'processing' %}
+            <div class="card processing" id="processing-{{ paper.name }}-paper">
+                <div class="spinner" style="border-top-color: #10b981;"></div>
+                <div class="processing-text">正在翻译与解析...</div>
+                <div class="processing-title">《{{ paper.name }}》</div>
+            </div>
+            {% else %}
+            <div class="card" onclick="handleCardClick(event, '/chat/{{ paper.name }}')">
+                <div class="card-select-layer">
+                    <input type="checkbox" class="card-checkbox" value="{{ paper.name }}" data-type="paper" onclick="updateDeleteBtnState()">
+                </div>
+                <div class="cover-wrapper" style="border-bottom: 2px solid #10b981;">
+                    <img class="cover" src="/cover/{{ paper.name }}" alt="cover">
+                </div>
+                <div class="title" title="{{ paper.name }}">{{ paper.name }}</div>
+            </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    </div>
+
+    <div id="prompt-view" style="display:none;">
+        <div class="prompt-container">
+            <div class="prompt-list-pane">
+                <div class="prompt-list-header">
+                    <span style="font-weight:600;">已保存的提示词</span>
+                    <button class="add-btn" style="padding: 4px 10px; margin:0;" onclick="createNewPrompt()" title="新建提示词">+</button>
+                </div>
+                <div class="prompt-list" id="prompt-list-ul">
+                    <!-- injected by JS -->
+                </div>
+            </div>
+            <div class="prompt-editor-pane" id="prompt-editor-pane" style="display:none;">
+                <div class="prompt-editor-header">
+                    <div>当前编辑: <input type="text" id="cur_prompt_name" style="background:transparent;border:none;color:var(--secondary-accent);font-size:16px;font-weight:bold;outline:none;" readonly></div>
+                    <div style="display:flex;gap:10px;">
+                        <button class="add-btn" style="background:rgba(223, 89, 83, 0.1); color:var(--danger-color); border:1px solid rgba(223, 89, 83, 0.4); box-shadow:none; margin:0; padding:6px 15px; white-space: nowrap;" onclick="deletePrompt()">删除</button>
+                        <button class="save-btn" style="margin:0; padding:6px 15px; white-space: nowrap;" onclick="savePrompt()">保存</button>
+                    </div>
+                </div>
+                <div id="segments-container" style="flex:1; overflow-y:auto; padding: 20px; display:flex; flex-direction:column; gap: 15px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 设置弹窗 -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>全域大模型引擎设置</h2>
+                <button class="close-btn" onclick="closeSettings()">&times;</button>
+            </div>
+            
+            <div class="form-section-title">📚 教材解析构建引擎 (PDF 解析用)</div>
+            <div class="form-group">
+                <label>API URL (Base)</label>
+                <input type="text" id="parse_api_url" placeholder="https://api.siliconflow.cn/v1">
+            </div>
+            <div class="form-group" id="parse_keys_container">
+                <label>API Keys (支持多秘钥并发轮询提取防封禁)</label>
+                <div id="parse_api_key_list"></div>
+                <button class="add-key-btn" onclick="addParseKeyInput('')">+ 增加 API Key</button>
+            </div>
+            <div class="form-group">
+                <label>视觉大模型名称 (推荐: Qwen3-VL-235B)</label>
+                <input type="text" id="parse_model" placeholder="Qwen/Qwen3-VL-235B-A22B-Thinking">
+            </div>
+            
+            <div class="form-section-title">💬 答疑对话引擎 (右侧聊天窗使用)</div>
+            <div class="form-group">
+                <label>API URL (Base)</label>
+                <input type="text" id="chat_api_url" placeholder="https://api.siliconflow.cn/v1">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="chat_api_key" placeholder="sk-xxxx">
+            </div>
+            <div class="form-group">
+                <label>纯文本大模型名称 (推荐响应极快的模型)</label>
+                <input type="text" id="chat_model" placeholder="Qwen/Qwen2.5-7B-Instruct">
+            </div>
+            
+            <div class="form-section-title">📄 论文深度分析引擎 (论文转PPT提取用)</div>
+            <div class="form-group">
+                <label>API URL</label>
+                <input type="text" id="paper_api_url" placeholder="https://api.siliconflow.cn/v1">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="paper_api_key" placeholder="sk-xxxx">
+            </div>
+            <div class="form-group">
+                <label>大模型名称</label>
+                <input type="text" id="paper_model" placeholder="Qwen/Qwen2.5-72B-Instruct">
+            </div>
+            
+            <div class="form-section-title">🖍️ PDF智能批注引擎 (生成带标记的PDF用)</div>
+            <div class="form-group">
+                <label>API URL</label>
+                <input type="text" id="annotator_api_url" placeholder="https://api.siliconflow.cn/v1">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="annotator_api_key" placeholder="sk-xxxx">
+            </div>
+            <div class="form-group">
+                <label>大模型名称</label>
+                <input type="text" id="annotator_model" placeholder="Qwen/Qwen2.5-72B-Instruct">
+            </div>
+            
+            <button class="save-btn" onclick="saveSettings()">保存配置并全局生效</button>
+        </div>
+    </div>
+
+    <!-- 统一上传选项弹窗 -->
+    <div class="modal-overlay" id="uploadModal">
+        <div class="modal-content" style="width: 400px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2>文件已选择</h2>
+                <button class="close-btn" onclick="closeUploadModal()">&times;</button>
+            </div>
+            <p id="selectedFileName" style="color:#94a3b8; font-size:13px; margin-top:0; word-break: break-all;"></p>
+            
+            <div class="form-group">
+                <label>将其作为何种类型解析？</label>
+                <select id="upload_item_type" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; font-family: 'Inter', sans-serif; outline: none;" onchange="togglePaperOptions()">
+                    <option value="book">教材</option>
+                    <option value="paper">论文</option>
+                </select>
+            </div>
+
+            <div id="paper_options_group" style="display: none; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1); margin-bottom: 15px;">
+                <div class="form-group">
+                    <label>选择提示词方案</label>
+                    <select id="upload_prompt" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; outline: none;">
+                        <option value="计算机+人工智能">计算机+人工智能</option>
+                        <option value="提示词汇总">默认提示词</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>PPT生成模式</label>
+                    <select id="upload_ppt_mode" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; outline: none;">
+                        <option value="simple">简单</option>
+                        <option value="creative">详细</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button class="save-btn" id="finalUploadBtn" onclick="submitUpload()">确认并开始上传后台解析</button>
+        </div>
+    </div>
+
+    <script>
+        const modal = document.getElementById('settingsModal');
+        
+        function addParseKeyInput(val) {
+            const container = document.getElementById('parse_api_key_list');
+            const row = document.createElement('div');
+            row.className = 'key-row';
+            row.innerHTML = `
+                <input type="text" class="parse-key-input" placeholder="sk-..." value="${val}">
+                <button class="remove-key-btn" onclick="this.parentElement.remove()" title="移除此秘钥">&times;</button>
+            `;
+            container.appendChild(row);
+        }
+
+        async function openSettings() {
+            modal.classList.add('active');
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+                document.getElementById('parse_api_url').value = cfg.parse_api_url || '';
+                
+                const keyList = document.getElementById('parse_api_key_list');
+                keyList.innerHTML = '';
+                let parseKeys = cfg.parse_api_key || [];
+                if (typeof parseKeys === 'string') parseKeys = parseKeys.split(',');
+                if (parseKeys.length === 0) parseKeys = [''];
+                
+                parseKeys.forEach(k => addParseKeyInput(k.trim()));
+
+                document.getElementById('parse_model').value = cfg.parse_model || '';
+                document.getElementById('chat_api_url').value = cfg.chat_api_url || '';
+                document.getElementById('chat_api_key').value = cfg.chat_api_key || '';
+                document.getElementById('chat_model').value = cfg.chat_model || '';
+                
+                document.getElementById('paper_api_url').value = cfg.paper_api_url || '';
+                document.getElementById('paper_api_key').value = cfg.paper_api_key || '';
+                document.getElementById('paper_model').value = cfg.paper_model || '';
+                
+                document.getElementById('annotator_api_url').value = cfg.annotator_api_url || '';
+                document.getElementById('annotator_api_key').value = cfg.annotator_api_key || '';
+                document.getElementById('annotator_model').value = cfg.annotator_model || '';
+            } catch (e) {
+                console.error("加载配置失败", e);
+            }
+        }
+        
+        function closeSettings() {
+            modal.classList.remove('active');
+        }
+        
+        async function saveSettings() {
+            const btn = document.querySelector('.save-btn');
+            btn.innerText = "保存中...";
+            try {
+                const keyInputs = document.querySelectorAll('.parse-key-input');
+                const parseKeysArray = Array.from(keyInputs).map(inp => inp.value.trim()).filter(v => v);
+
+                const payload = {
+                    parse_api_url: document.getElementById('parse_api_url').value,
+                    parse_api_key: parseKeysArray,
+                    parse_model: document.getElementById('parse_model').value,
+                    chat_api_url: document.getElementById('chat_api_url').value,
+                    chat_api_key: document.getElementById('chat_api_key').value,
+                    chat_model: document.getElementById('chat_model').value,
+                    paper_api_url: document.getElementById('paper_api_url').value,
+                    paper_api_key: document.getElementById('paper_api_key').value,
+                    paper_model: document.getElementById('paper_model').value,
+                    annotator_api_url: document.getElementById('annotator_api_url').value,
+                    annotator_api_key: document.getElementById('annotator_api_key').value,
+                    annotator_model: document.getElementById('annotator_model').value
+                };
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                btn.innerText = "配置已保存！";
+                setTimeout(() => {
+                    closeSettings();
+                    btn.innerText = "保存配置并全局生效";
+                }, 1000);
+            } catch (e) {
+                btn.innerText = "保存失败";
+            }
+        }
+        
+        async function resumeParse(bookName, e) {
+            e.stopPropagation();
+            try {
+                const btn = e.target;
+                btn.innerText = "引擎唤醒中...";
+                btn.disabled = true;
+                const res = await fetch(`/api/resume/${encodeURIComponent(bookName)}`, { method: 'POST' });
+                const data = await res.json();
+                if(data.status === 'processing') {
+                    const card = btn.closest('.card');
+                    card.classList.add('processing');
+                    card.classList.add('new-processing-card');
+                    card.innerHTML = `
+                        <div class="spinner"></div>
+                        <div class="processing-text">正在解析</div>
+                        <div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">获取进度...</div>
+                        <div class="processing-title">《${bookName}》</div>
+                    `;
+                    card.id = `processing-${bookName}-book`;
+                    card.removeAttribute('onclick');
+                }
+            } catch(e) {
+                alert("恢复解析失败");
+            }
+        }
+        
+        let uploadSelectedFile = null;
+
+        function closeUploadModal() {
+            document.getElementById('uploadModal').classList.remove('active');
+            uploadSelectedFile = null;
+            document.getElementById('unifiedUploadInput').value = '';
+        }
+
+        function handleFileSelected(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            uploadSelectedFile = file;
+            document.getElementById('selectedFileName').innerText = "当前文件: " + file.name;
+            document.getElementById('upload_item_type').value = 'book';
+            togglePaperOptions();
+            document.getElementById('uploadModal').classList.add('active');
+        }
+
+        function togglePaperOptions() {
+            const t = document.getElementById('upload_item_type').value;
+            const group = document.getElementById('paper_options_group');
+            if(t === 'paper') {
+                group.style.display = 'block';
+            } else {
+                group.style.display = 'none';
+            }
+        }
+        
+        async function submitUpload() {
+            if(!uploadSelectedFile) return;
+            
+            const btn = document.getElementById('finalUploadBtn');
+            const originalText = btn.innerText;
+            btn.innerText = "上传解析引擎启动中...";
+            btn.disabled = true;
+
+            const item_type = document.getElementById('upload_item_type').value;
+            const formData = new FormData();
+            formData.append("file", uploadSelectedFile);
+            
+            if (item_type === 'paper') {
+                formData.append("prompt_type", document.getElementById('upload_prompt').value);
+                formData.append("ppt_mode", document.getElementById('upload_ppt_mode').value);
+            }
+            
+            const endpoint = item_type === 'paper' ? '/api/upload_paper' : '/api/upload';
+
+            try {
+                const res = await fetch(endpoint, { method: 'POST', body: formData });
+                const data = await res.json();
+                if(data.status === 'processing') {
+                    const targetGridId = item_type === 'paper' ? 'papers-grid' : 'books-grid';
+                    const targetGrid = document.getElementById(targetGridId);
+                    const targetHeadingId = item_type === 'paper' ? 'papers-heading' : 'books-heading';
+                    const targetHeading = document.getElementById(targetHeadingId);
+                    
+                    if (targetGrid) {
+                        // Unhide section if it was hidden
+                        targetGrid.style.display = 'grid';
+                        if (targetHeading) targetHeading.style.display = 'block';
+                        
+                        const newCard = document.createElement('div');
+                        newCard.className = 'card processing new-processing-card';
+                        newCard.id = `processing-${data.book_name}-${item_type}`;
+                        newCard.innerHTML = `
+                            <div class="spinner" ${item_type === 'paper' ? 'style="border-top-color: #10b981;"' : ''}></div>
+                            <div class="processing-text">${item_type === 'paper' ? '正在翻译与解析...' : '正在解析'}</div>
+                            ${item_type === 'book' ? `<div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">获取进度...</div>` : ''}
+                            <div class="processing-title">《${data.book_name}》</div>
+                        `;
+                        // Prepend new processing card
+                        targetGrid.insertBefore(newCard, targetGrid.firstChild);
+                    }
+                }
+            } catch(err) {
+                alert("上传失败！" + err);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+                closeUploadModal();
+            }
+        }
+
+        // Auto poll status for processing cards
+        setInterval(async () => {
+            const processingCards = document.querySelectorAll('.card.processing');
+            if (processingCards.length === 0) return;
+            
+            for (let card of processingCards) {
+                // Determine if it's a book or paper from the id
+                let bookName = card.id.replace('processing-', '');
+                let itemType = 'book';
+                if (bookName.endsWith('-paper')) {
+                    itemType = 'paper';
+                    bookName = bookName.replace(/-paper$/, '');
+                } else if (bookName.endsWith('-book')) {
+                    itemType = 'book';
+                    bookName = bookName.replace(/-book$/, '');
+                }
+                
+                try {
+                    const res = await fetch(`/api/status/${itemType}/${encodeURIComponent(bookName)}`);
+                    const data = await res.json();
+                    if (data.status === 'ready') {
+                        // Backend finished! Refresh to render the new item thumbnail
+                        window.location.reload(); 
+                    } else if (data.status === 'processing' && itemType === 'book') {
+                        const progressEl = card.querySelector('.processing-progress');
+                        if (progressEl && data.progress) {
+                            progressEl.innerText = data.progress;
+                        }
+                    } else if (data.status === 'interrupted') {
+                        window.location.reload(); 
+                    }
+                } catch(e) {}
+            }
+        }, 5000);
+
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeSettings();
+        });
+        
+        const uploadModal = document.getElementById('uploadModal');
+        uploadModal.addEventListener('click', (e) => {
+            if (e.target === uploadModal) closeUploadModal();
+        });
+        // 监听拖拽操作
+        const dropZone = document.getElementById('drop-zone');
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults (e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            let dt = e.dataTransfer;
+            let files = dt.files;
+            if(files.length) {
+                document.getElementById('unifiedUploadInput').files = files;
+                handleFileSelected({target: {files: files}});
+            }
+        }, false);
+
+        // API Configuration and Data
+        async function ensurePromptOptions() {
+            try {
+                const res = await fetch('/api/prompts');
+                const data = await res.json();
+                const sel = document.getElementById('upload_prompt');
+                sel.innerHTML = '';
+                data.prompts.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    opt.innerText = p;
+                    if (p === '计算机+人工智能') opt.selected = true;
+                    sel.appendChild(opt);
+                });
+            } catch(e) {}
+        }
+        
+        function changeTheme(themeName) {
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('theme', themeName);
+            
+            // Record last selection per mode
+            if (themeName.includes('light')) {
+                localStorage.setItem('preferred_light', themeName);
+                localStorage.setItem('last_mode', 'light');
+            } else {
+                localStorage.setItem('preferred_dark', themeName);
+                localStorage.setItem('last_mode', 'dark');
+            }
+            
+            const sel = document.getElementById('themeSelector');
+            if (sel && sel.value !== themeName) {
+                sel.value = themeName;
+            }
+        }
+
+        function toggleDarkLight() {
+            const currentMode = localStorage.getItem('last_mode') || 'dark';
+            if (currentMode === 'dark') {
+                const lightTheme = localStorage.getItem('preferred_light') || 'github-light';
+                changeTheme(lightTheme);
+            } else {
+                const darkTheme = localStorage.getItem('preferred_dark') || 'github-dark';
+                changeTheme(darkTheme);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            let activeTheme = localStorage.getItem('theme') || 'github-dark';
+            
+            // For backward compatibility with the old boolean format
+            if (activeTheme === 'light') activeTheme = 'github-light';
+            if (activeTheme === 'dark') activeTheme = 'github-dark';
+
+            changeTheme(activeTheme);
+            ensurePromptOptions();
+        });
+
+        // Management UI scripts
+        let isManageMode = false;
+        function toggleManageMode() {
+            isManageMode = !isManageMode;
+            let mainView = document.getElementById('main-view');
+            let manageBtn = document.getElementById('manage-btn');
+            let cancelBtn = document.getElementById('cancel-manage-btn');
+            
+            if (isManageMode) {
+                mainView.classList.add('manage-mode');
+                manageBtn.innerText = '删除 (0)';
+                manageBtn.style.color = '#DF5953';
+                manageBtn.style.borderColor = 'rgba(223, 89, 83, 0.5)';
+                manageBtn.style.background = 'transparent';
+                manageBtn.disabled = true;
+                manageBtn.onclick = executeDelete;
+                cancelBtn.style.display = 'flex';
+                
+                // Reset all checkboxes
+                document.querySelectorAll('.card-checkbox').forEach(cb => cb.checked = false);
+            } else {
+                mainView.classList.remove('manage-mode');
+                manageBtn.innerText = '管理';
+                manageBtn.style.color = 'var(--text-color)';
+                manageBtn.style.borderColor = 'var(--header-border)';
+                manageBtn.style.background = 'var(--icon-btn-bg)';
+                manageBtn.disabled = false;
+                manageBtn.onclick = toggleManageMode;
+                cancelBtn.style.display = 'none';
+            }
+        }
+
+        function updateDeleteBtnState() {
+            let manageBtn = document.getElementById('manage-btn');
+            let count = document.querySelectorAll('.card-checkbox:checked').length;
+            manageBtn.innerText = `删除 (${count})`;
+            if (count > 0) {
+                manageBtn.disabled = false;
+                manageBtn.style.background = 'rgba(223, 89, 83, 0.2)';
+            } else {
+                manageBtn.disabled = true;
+                manageBtn.style.background = 'transparent';
+            }
+        }
+
+        function handleCardClick(e, url) {
+            if (isManageMode) {
+                let cb = e.currentTarget.querySelector('.card-checkbox');
+                if (e.target !== cb) { 
+                    cb.checked = !cb.checked;
+                }
+                updateDeleteBtnState();
+            } else {
+                window.location.href = url;
+            }
+        }
+
+        async function executeDelete() {
+            let checkedItems = document.querySelectorAll('.card-checkbox:checked');
+            if (checkedItems.length === 0) return;
+            
+            if (!confirm(`严重警告：不可逆转！确定要物理删除选择的 ${checkedItems.length} 个资料及其所有分析生成文件吗？`)) return;
+            
+            for (let cb of checkedItems) {
+                let name = cb.value;
+                let type = cb.dataset.type;
+                await fetch(`/api/delete_target?name=${encodeURIComponent(name)}&type=${type}`, { method: 'DELETE' });
+            }
+            
+            window.location.reload();
+        }
+
+        // Prompt Management UI Scripts
+        function switchPage() {
+            const page = document.getElementById('page_selector').value;
+            if (page === 'data') {
+                document.getElementById('main-view').style.display = 'block';
+                document.getElementById('prompt-view').style.display = 'none';
+            } else {
+                document.getElementById('main-view').style.display = 'none';
+                document.getElementById('prompt-view').style.display = 'block';
+                loadPromptList();
+            }
+        }
+        
+        let currentPrompt = '';
+        let promptSegments = [];
+        let promptFileHeader = ""; 
+
+        function parseSegments(rawText) {
+            let lines = rawText.split('\n');
+            let segs = [];
+            let currentTitle = '';
+            let currentLines = [];
+            promptFileHeader = "";
+            
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                if (line.trim().startsWith('## ') && segs.length === 0 && currentTitle === '') {
+                    promptFileHeader = line;
+                    continue;
+                }
+                if (line.trim().startsWith('### ')) {
+                    if (currentLines.length > 0 || currentTitle !== '') {
+                        segs.push({ title: currentTitle, text: currentLines.join('\n').trim() });
+                    }
+                    currentTitle = line.trim();
+                    currentLines = [];
+                } else {
+                    currentLines.push(line);
+                }
+            }
+            if (currentTitle !== '' || currentLines.join('').trim() !== '') {
+                segs.push({ title: currentTitle === '' ? '### 第一段prompt' : currentTitle, text: currentLines.join('\n').trim() });
+            }
+            if (segs.length === 0 && promptFileHeader === '') {
+                segs.push({title: '### 第一段prompt', text: rawText.trim()});
+            }
+            promptSegments = segs;
+            renderSegments();
+        }
+
+        function renderSegments() {
+            let c = document.getElementById('segments-container');
+            c.innerHTML = '';
+            promptSegments.forEach((seg, i) => {
+                let div = document.createElement('div');
+                div.style.cssText = "background: var(--bg-color); border: 1px solid var(--header-border); border-radius: 8px; padding: 15px; display:flex; flex-direction:column; gap:10px;";
+                
+                let head = document.createElement('div');
+                head.style.cssText = "display:flex; justify-content:space-between; align-items:center;";
+                
+                let titleInp = document.createElement('input');
+                titleInp.value = seg.title.replace(/^#+\s*/, '');
+                titleInp.style.cssText = "background:transparent; border:none; color:var(--primary-accent); font-weight:bold; font-size:15px; outline:none; flex:1;";
+                titleInp.oninput = (e) => promptSegments[i].title = '### ' + e.target.value;
+                
+                let delBtn = document.createElement('button');
+                delBtn.innerText = "删除";
+                delBtn.style.cssText = "background:transparent; border:none; color:var(--danger-color); cursor:pointer; font-size:14px; font-weight:bold;";
+                delBtn.onclick = () => { promptSegments.splice(i, 1); renderSegments(); };
+                
+                head.appendChild(titleInp);
+                head.appendChild(delBtn);
+                
+                let textInp = document.createElement('textarea');
+                textInp.value = seg.text;
+                textInp.style.cssText = "background: var(--input-bg); border:1px solid var(--header-border); border-radius:6px; color:var(--text-color); font-size:14px; padding:10px; resize:vertical; min-height:80px; outline:none; font-family:'Inter',sans-serif; line-height: 1.5;";
+                textInp.oninput = (e) => promptSegments[i].text = e.target.value;
+                
+                div.appendChild(head);
+                div.appendChild(textInp);
+                c.appendChild(div);
+            });
+            
+            let addBtn = document.createElement('button');
+            addBtn.innerText = "+ 添加新段落";
+            addBtn.style.cssText = "background:var(--icon-btn-bg); border:1px dashed var(--header-border); color:var(--text-color); padding:10px; border-radius:8px; cursor:pointer; font-weight:600; font-family:'Inter',sans-serif; margin-top:5px; transition:0.2s;";
+            addBtn.onmouseover = () => addBtn.style.background = "var(--card-hover-border)";
+            addBtn.onmouseleave = () => addBtn.style.background = "var(--icon-btn-bg)";
+            let orderArr = ['一','二','三','四','五','六','七','八','九','十','十一','十二'];
+            let idx = Math.min(promptSegments.length, orderArr.length - 1);
+            addBtn.onclick = () => { promptSegments.push({title:'### 第' + orderArr[idx] + '段prompt', text:''}); renderSegments(); };
+            c.appendChild(addBtn);
+        }
+
+        function reconstructMarkdown() {
+            let lines = [];
+            if (promptFileHeader) lines.push(promptFileHeader);
+            promptSegments.forEach(seg => {
+                lines.push(seg.title);
+                if (seg.text.trim()) lines.push(seg.text);
+            });
+            return lines.join('\n');
+        }
+
+        async function loadPromptList() {
+            const res = await fetch('/api/prompts');
+            const data = await res.json();
+            const list = document.getElementById('prompt-list-ul');
+            list.innerHTML = '';
+            data.prompts.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'prompt-item' + (currentPrompt === p ? ' active' : '');
+                item.innerText = p;
+                item.onclick = () => loadPromptContent(p);
+                list.appendChild(item);
+            });
+            if (!currentPrompt && data.prompts.length > 0) {
+                if (data.prompts.includes('计算机+人工智能')) {
+                    loadPromptContent('计算机+人工智能');
+                } else {
+                    loadPromptContent(data.prompts[0]);
+                }
+            } else if (!data.prompts.includes(currentPrompt)) {
+                document.getElementById('prompt-editor-pane').style.display = 'none';
+                currentPrompt = '';
+            }
+        }
+        
+        async function loadPromptContent(name) {
+            currentPrompt = name;
+            const res = await fetch('/api/prompts/' + encodeURIComponent(name));
+            const data = await res.json();
+            document.getElementById('prompt-editor-pane').style.display = 'flex';
+            document.getElementById('cur_prompt_name').value = name;
+            parseSegments(data.content);
+            document.getElementById('cur_prompt_name').readOnly = true;
+            loadPromptList(); 
+        }
+        
+        async function createNewPrompt() {
+            const name = prompt("请输入新提示词方案的名称 (如 '计算机+人工智能2'):");
+            if (!name) return;
+            currentPrompt = name;
+            document.getElementById('prompt-editor-pane').style.display = 'flex';
+            document.getElementById('cur_prompt_name').value = name;
+            document.getElementById('cur_prompt_name').readOnly = true;
+            // 立即在后端生成对应的文件占位符，从而避免刷新丢失
+            const initContent = "## " + name + "\n### 第一段prompt\n";
+            await fetch('/api/prompts/' + encodeURIComponent(name), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content: initContent})
+            });
+            parseSegments(initContent);
+            loadPromptList(); 
+            ensurePromptOptions();
+        }
+        
+        async function savePrompt() {
+            if (!currentPrompt) return;
+            const content = reconstructMarkdown();
+            await fetch('/api/prompts/' + encodeURIComponent(currentPrompt), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content: content})
+            });
+            alert('保存成功！');
+            loadPromptList();
+            ensurePromptOptions(); // Ensure upload modal reflects new prompts
+        }
+        
+        async function deletePrompt() {
+            if (!currentPrompt) return;
+            if (!confirm(`确认删除 "${currentPrompt}" 吗？`)) return;
+            await fetch('/api/prompts/' + encodeURIComponent(currentPrompt), {method: 'DELETE'});
+            currentPrompt = '';
+            document.getElementById('prompt-editor-pane').style.display = 'none';
+            loadPromptList();
+            ensurePromptOptions(); 
+        }
+    </script>
+</body>
+</html>

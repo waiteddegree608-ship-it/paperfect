@@ -1,0 +1,78 @@
+[
+  {
+    "id": "arrow_1",
+    "type": "arrow",
+    "startX": 150,
+    "startY": 650,
+    "endX": 150,
+    "endY": 250,
+    "color": "#3b82f6",
+    "width": 3
+  },
+  {
+    "id": "text_1",
+    "type": "text",
+    "x": 150,
+    "y": 650,
+    "text": "投影模块\n通过e4e将图像编码并拆分出三个层次的w\n1.Wc：全局特征\n2.Wm：服装类型\n3.Wf：颜色+纹理",
+    "color": "#000000",
+    "fontSize": 20
+  },
+  {
+    "id": "arrow_2",
+    "type": "arrow",
+    "startX": 450,
+    "startY": 650,
+    "endX": 450,
+    "endY": 250,
+    "color": "#3b82f6",
+    "width": 3
+  },
+  {
+    "id": "text_2",
+    "type": "text",
+    "x": 450,
+    "y": 650,
+    "text": "服装编辑模块\n输入：文本+图像\nEt&Mtxr将文本分为上下半身，输出用于GAN的ΔWm",
+    "color": "#000000",
+    "fontSize": 20
+  },
+  {
+    "id": "arrow_3",
+    "type": "arrow",
+    "startX": 750,
+    "startY": 650,
+    "endX": 750,
+    "endY": 250,
+    "color": "#3b82f6",
+    "width": 3
+  },
+  {
+    "id": "text_3",
+    "type": "text",
+    "x": 750,
+    "y": 650,
+    "text": "ID恢复模块\n缝合Ie+Ii并输出Io",
+    "color": "#000000",
+    "fontSize": 20
+  },
+  {
+    "id": "arrow_4",
+    "type": "arrow",
+    "startX": 1050,
+    "startY": 650,
+    "endX": 1050,
+    "endY": 250,
+    "color": "#3b82f6",
+    "width": 3
+  },
+  {
+    "id": "text_4",
+    "type": "text",
+    "x": 1050,
+    "y": 650,
+    "text": "损失函数(用于无监督学习)\nCLIP（提取文本） VGG-19（纹理提取）",
+    "color": "#000000",
+    "fontSize": 20
+  }
+]

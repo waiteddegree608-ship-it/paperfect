@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Paperfect - {{ book_name }}</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* GitHub Dark (Default Dark) Fallback */
+        :root {
+            --bg-color: #282C34; --text-color: #ABB2BF; --pane-bg: #282C34; --pane-border: #21252B;
+            --pane-header-bg: #194A50; --header-text: #ABB2BF; --primary-accent: #3D71D9; --primary-hover: #3D71D9;
+            --secondary-accent: #3D71D9; --secondary-hover: #3D71D9; --danger-color: #3D71D9; --upload-accent: #3D71D9;
+            --btn-bg: #21252B; --btn-border: #21252B; --chat-area-bg: #282C34; --user-bubble-bg: #21252B;
+            --user-bubble-text: #ABB2BF; --ai-bubble-bg: #282C34; --ai-bubble-border: #21252B; --input-bg: #21252B;
+            --bot-status-color: #3D71D9; --secondary-text: #ABB2BF;
+        }
+
+        body[data-theme="antigravity"] {
+            --bg-color: #16161D; --text-color: #878AA2; --pane-bg: #16161D; --pane-border: #1A1B25;
+            --pane-header-bg: #1A1B25; --header-text: #88D6CC; --primary-accent: #6E88BD; --primary-hover: #88D6CC;
+            --secondary-accent: #88D6CC; --secondary-hover: #88D6CC; --danger-color: #DF5953; --upload-accent: #6E88BD;
+            --btn-bg: #1A1B25; --btn-border: #1A1B25; --chat-area-bg: #16161D; --user-bubble-bg: #1A1B25;
+            --user-bubble-text: #88D6CC; --ai-bubble-bg: #16161D; --ai-bubble-border: #1A1B25; --input-bg: #1A1B25;
+            --bot-status-color: #88D6CC; --secondary-text: #878AA2;
+        }
+
+        body[data-theme="dark-plus"] {
+            --bg-color: #1E1E1E; --text-color: #CCCCCC; --pane-bg: #181818; --pane-border: #181818;
+            --pane-header-bg: #1B4D54; --header-text: #CCCCCC; --primary-accent: #004F8B; --primary-hover: #004F8B;
+            --secondary-accent: #004F8B; --secondary-hover: #004F8B; --danger-color: #004F8B; --upload-accent: #004F8B;
+            --btn-bg: #181818; --btn-border: #181818; --chat-area-bg: #1E1E1E; --user-bubble-bg: #181818;
+            --user-bubble-text: #CCCCCC; --ai-bubble-bg: #1E1E1E; --ai-bubble-border: #181818; --input-bg: #181818;
+            --bot-status-color: #004F8B; --secondary-text: #CCCCCC;
+        }
+
+        body[data-theme="cyan-light"] {
+            --bg-color: #FFFFFF; --text-color: #202224; --pane-bg: #F4F7F9; --pane-border: #F4F7F9;
+            --pane-header-bg: #8EE8E6; --header-text: #202224; --primary-accent: #39B2B2; --primary-hover: #39B2B2;
+            --secondary-accent: #39B2B2; --secondary-hover: #39B2B2; --danger-color: #39B2B2; --upload-accent: #39B2B2;
+            --btn-bg: #F4F7F9; --btn-border: #F4F7F9; --chat-area-bg: #FFFFFF; --user-bubble-bg: #F4F7F9;
+            --user-bubble-text: #202224; --ai-bubble-bg: #FFFFFF; --ai-bubble-border: #F4F7F9; --input-bg: #F4F7F9;
+            --bot-status-color: #39B2B2; --secondary-text: #202224;
+        }
+
+        body { 
+            margin: 0; padding: 20px;
+            display: flex; height: 100vh; box-sizing: border-box;
+            background: var(--bg-color);
+            font-family: 'Inter', -apple-system, "Microsoft YaHei", sans-serif;
+            color: var(--text-color);
+            gap: 20px;
+            flex-direction: column; 
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        /* 定制全局滚动条，消灭 Windows 原本丑陋的粗条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+        /* 各种阅读器的弹性布局 */
+        .panes-container {
+            display: flex;
+            flex: 1;
+            /* gap is replaced by .resizer width */
+            overflow: hidden;
+        }
+
+        .resizer {
+            width: 20px;
+            cursor: col-resize;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        .resizer::after {
+            content: "";
+            width: 4px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            transition: 0.2s;
+        }
+        .resizer:hover::after, .resizer:active::after {
+            background: #3b82f6;
+            height: 100%;
+        }
+
+        .pane {
+            flex: 1;
+            background: var(--pane-bg); 
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid var(--pane-border);    
+            display: flex;
+            flex-direction: column;
+        }
+        .pane-header {
+            background: var(--pane-header-bg);
+            padding: 8px 15px;
+            font-size: 13px;
+            color: var(--header-text);
+            border-bottom: 1px solid var(--pane-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .pane iframe {
+            flex: 1;
+            width: 100%; 
+            border: none; 
+            background: #111; 
+        }
+        
+        /* 布局控制栏: 现在独立悬浮于顶部 */
+        .layout-controls {
+            display: flex;
+            gap: 15px;
+            background: var(--pane-bg);
+            padding: 12px 20px;
+            border-radius: 16px;
+            border: 1px solid var(--pane-border);
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .layout-btn {
+            background: var(--btn-bg);
+            border: 1px solid var(--btn-border);
+            color: var(--text-color);
+            padding: 6px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+        .layout-btn.active {
+            background: var(--primary-accent);
+            border-color: var(--primary-accent);
+            color: #fff;
+        }
+        
+        /* 右侧问答智域 */
+        .right-pane { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px;
+        }
+        
+        /* 聊天区域主屏：毛玻璃拟物化 */
+        .chat-area { 
+            flex: 1; 
+            overflow-y: auto; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 24px;
+            padding: 24px;
+            background: var(--chat-area-bg);
+            border: 1px solid var(--pane-border);
+            border-radius: 20px;
+            scroll-behavior: smooth;
+        }
+        
+        .bubble-container { display: flex; align-items: flex-end; gap: 12px; max-width: 90%; }
+        .user-row { justify-content: flex-end; width: 100%; align-self: flex-end; }
+        .ai-row { justify-content: flex-start; width: 100%; align-self: flex-start;}
+        
+        .bubble { 
+            padding: 14px 20px; 
+            border-radius: 16px; 
+            font-size: 14.5px; 
+            line-height: 1.65;
+            word-break: break-word;
+        }
+        
+        /* 用户的气泡：炫彩渐变亮色 */
+        .user-bubble { 
+            background: var(--user-bubble-bg); 
+            border-bottom-right-radius: 4px; 
+            color: var(--user-bubble-text, #ffffff);
+            border: 1px solid var(--pane-border);
+        }
+        .user-avatar { 
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            /* 假装有个默认的酷炫用户图 */
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23fff"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>') center/18px no-repeat, var(--primary-accent);
+            flex-shrink: 0;
+            margin-bottom: 2px;
+        }
+        
+        /* AI的气泡：深邃的高级灰面板 */
+        .ai-bubble { 
+            background: var(--ai-bubble-bg);
+            border-bottom-left-radius: 4px; 
+            color: var(--text-color);
+            border: 1px solid var(--ai-bubble-border);
+        }
+        .ai-avatar { 
+            width: 32px; height: 32px; 
+            border-radius: 50%; 
+            background: var(--bot-status-color);
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 11px; font-weight: 700; color: #fff;
+            flex-shrink: 0;
+            margin-bottom: 2px;
+            letter-spacing: 0.5px;
+        }
+
+        /* 聊天头部栏 */
+        .chat-header {
+            display: flex; justify-content: space-between; align-items: center;
+            background: var(--input-bg);
+            padding: 15px 24px;
+            border-radius: 20px;
+            border: 1px solid var(--pane-border);
+        }
+        .chat-title { font-weight: 600; font-size: 16px; color: var(--text-color); }
+        
+        .chat-actions { display: flex; gap: 10px; }
+        .action-btn {
+            background: var(--btn-bg); border: 1px solid var(--btn-border);
+            color: var(--text-color); padding: 6px 12px; border-radius: 8px; font-size: 13px;
+            cursor: pointer; transition: 0.2s;
+        }
+        .action-btn:hover { background: var(--primary-accent); color: #fff; }
+        .new-chat-btn { background: var(--primary-accent); border-color: var(--primary-accent); color: #fff;}
+        .new-chat-btn:hover { background: var(--primary-hover); }
+
+        /* 历史面板模态框 */
+        .history-overlay {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px); display: flex; align-items: center; opacity: 0; pointer-events: none;
+            transition: 0.3s; z-index: 100;
+            justify-content: flex-end; /* 右侧滑出 */
+        }
+        .history-overlay.active { opacity: 1; pointer-events: auto; }
+        .history-panel {
+            background: var(--pane-bg); width: 350px; height: 100%; box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            transform: translateX(100%); transition: 0.3s; padding: 30px 20px;
+            display: flex; flex-direction: column; box-sizing: border-box;
+            border-left: 1px solid var(--pane-border);
+        }
+        .history-overlay.active .history-panel { transform: translateX(0); }
+        .history-header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid var(--pane-border); padding-bottom: 15px; color: var(--text-color);}
+        .history-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .history-item {
+            padding: 12px; background: var(--chat-area-bg); border: 1px solid var(--pane-border);
+            border-radius: 10px; cursor: pointer; transition: 0.2s;
+        }
+        .history-item:hover, .history-item.active { background: var(--btn-bg); border-color: var(--primary-accent); }
+        .history-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; color: var(--text-color);}
+        .history-date { font-size: 12px; color: var(--secondary-text); }
+        .del-hist-btn { float: right; background: none; border: none; color: #ef4444; cursor: pointer; display: none; }
+        .history-item:hover .del-hist-btn { display: inline; }
+        
+        /* 富交互的底部输入引擎 */
+        .input-area { 
+            background: var(--input-bg); 
+            border-radius: 20px; 
+            padding: 16px 24px; 
+            display: flex; 
+            flex-direction: column; 
+            border: 1px solid var(--pane-border);
+            min-height: 110px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .input-area:focus-within {
+            border-color: var(--primary-accent);
+        }
+
+        textarea { 
+            flex: 1; 
+            border: none; 
+            background: transparent; 
+            resize: none; 
+            font-size: 15px;
+            color: var(--text-color);
+            outline: none;
+            line-height: 1.5;
+        }
+        
+        textarea::placeholder {
+            color: var(--secondary-text);
+        }
+        
+        .bottom-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .bot-status {
+            font-size: 12px;
+            color: var(--secondary-text);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .bot-status::before {
+            content: "";
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--bot-status-color);
+        }
+
+        .send-btn { 
+            background: var(--btn-border); 
+            color: var(--text-color); 
+            border: none; 
+            padding: 8px 24px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-accent);
+            color: #fff;
+        }
+        .send-btn:active {
+            transform: translateY(1px);
+        }
+        
+        /* 简单的打字动画 */
+        .typing {
+            display: inline-block;
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            animation: bounce 1.4s infinite ease-in-out both;
+            margin: 0 2px;
+        }
+        .typing:nth-child(1) { animation-delay: -0.32s; }
+        .typing:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.5); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 全局主控栏（顶部导航排版条） -->
+    {% if is_paper %}
+    <div class="layout-controls" style="position: relative;">
+        <!-- 返回主界面按钮 -->
+        <button class="layout-btn" style="position: absolute; left: 20px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            返回主页
+        </button>
+        
+        <button class="layout-btn active" id="btn-layout-orig" onclick="togglePane('original')">原文</button>
+        <button class="layout-btn" id="btn-layout-anno" onclick="togglePane('annotated')">ai标注</button>
+        <button class="layout-btn" id="btn-layout-trans" onclick="togglePane('translated')">翻译</button>
+        <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')">PPT</button>
+        <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')">AI</button>
+    </div>
+    {% else %}
+    <div class="layout-controls" style="justify-content: flex-start;">
+        <!-- 返回主界面按钮 -->
+        <button class="layout-btn" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            返回主页
+        </button>
+    </div>
+    {% endif %}
+
+    <div class="panes-container">
+        <!-- 原文PDF -->
+        <div class="pane" id="pane-original">
+            <div class="pane-header">PDF 原文版</div>
+            <iframe src="/pdf/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Original PDF Viewer"></iframe>
+        </div>
+        
+        <!-- 翻译PDF (仅论文模式下存在且默认可能显示) -->
+        {% if is_paper %}
+        <div class="pane" id="pane-annotated" style="display: none;">
+            <div class="pane-header">AI 批注版 PDF</div>
+            <iframe src="/pdf_annotated/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Annotated PDF Viewer" onerror="this.src='/pdf/{{ book_name }}'; alert('尚未生成AI批注');"></iframe>
+        </div>
+        <div class="pane" id="pane-translated" style="display: none;">
+            <div class="pane-header">PDF 翻译版</div>
+            <iframe src="/pdf_translated/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Translated PDF Viewer"></iframe>
+        </div>
+        <div class="pane" id="pane-ppt" style="display: none;">
+            <div class="pane-header">PPT 独立流式编辑器</div>
+            <iframe src="/ppt_editor/{{ book_name }}" title="Web PPT Editor"></iframe>
+        </div>
+        {% endif %}
+        
+        <div class="pane right-pane" id="pane-chat">
+
+            <div style="flex:1; display:flex; flex-direction:column; padding: 0 20px 20px; gap: 20px; overflow: hidden;">
+                <div class="chat-header">
+            <div class="chat-title"></div>
+            <div class="chat-actions">
+                <button class="action-btn" onclick="openHistory()">历史对话</button>
+                <button class="action-btn new-chat-btn" onclick="startNewSession()">开启新对话</button>
+            </div>
+        </div>
+
+        <div class="chat-area" id="chat">
+            <!-- Chat bubules injected dynamically -->
+        </div>
+        
+            <div class="input-area">
+                <textarea id="msg" placeholder="请输入您关于这档文档的任何疑问，或者指定页码进行问答..."></textarea>
+                <div class="bottom-actions">
+                    <div class="bot-status" style="display: none;"></div>
+                    <button class="send-btn" onclick="sendMsg()">发送 (Enter)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史面板 -->
+    <div class="history-overlay" id="histModal">
+        <div class="history-panel">
+            <div class="history-header">
+                <h3 style="margin:0">对话历史</h3>
+                <button onclick="document.getElementById('histModal').classList.remove('active')" style="background:none;border:none;color:var(--text-color);cursor:pointer;font-size:20px">&times;</button>
+            </div>
+            <div class="history-list" id="histList"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check theme setup from homepage preference
+        let activeTheme = localStorage.getItem('theme') || 'github-dark';
+        if (activeTheme === 'light') activeTheme = 'github-light';
+        if (activeTheme === 'dark') activeTheme = 'github-dark';
+        document.body.setAttribute('data-theme', activeTheme);
+        
+        const storeKey = "chat_histories_{{ book_name }}";
+        let chatHistory = []; // current context
+        let currentSessionId = null;
+        const msgInput = document.getElementById("msg");
+
+        // Layout Toggle Logic & Resizer Logic
+        function togglePane(paneType) {
+            const mappings = {
+                'original': {pane: 'pane-original', btn: 'btn-layout-orig'},
+                'annotated': {pane: 'pane-annotated', btn: 'btn-layout-anno'},
+                'translated': {pane: 'pane-translated', btn: 'btn-layout-trans'},
+                'ppt': {pane: 'pane-ppt', btn: 'btn-layout-ppt'},
+                'chat': {pane: 'pane-chat', btn: 'btn-layout-chat'}
+            };
+            const map = mappings[paneType];
+            if (map) {
+                const pane = document.getElementById(map.pane);
+                const btn = document.getElementById(map.btn);
+                if (pane && btn) {
+                    btn.classList.toggle('active');
+                    pane.style.display = btn.classList.contains('active') ? 'flex' : 'none';
+                    updateResizers();
+                }
+            }
+        }
+
+        function updateResizers() {
+            document.querySelectorAll('.resizer').forEach(el => el.remove());
+            
+            const container = document.querySelector('.panes-container');
+            const visiblePanes = Array.from(container.querySelectorAll('.pane')).filter(p => p.style.display !== 'none');
+            
+            visiblePanes.forEach(p => {
+                if(!p.style.flex) p.style.flex = "1 1 0%";
+            });
+
+            for(let i=0; i<visiblePanes.length - 1; i++) {
+                const resizer = document.createElement('div');
+                resizer.className = 'resizer';
+                container.insertBefore(resizer, visiblePanes[i].nextSibling);
+                
+                resizer.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    let prevPane = visiblePanes[i];
+                    let nextPane = visiblePanes[i+1];
+                    let startX = e.clientX;
+                    let prevFlex = prevPane.getBoundingClientRect().width;
+                    let nextFlex = nextPane.getBoundingClientRect().width;
+                    
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;cursor:col-resize;';
+                    document.body.appendChild(overlay);
+
+                    function onMouseMove(e) {
+                        let dx = e.clientX - startX;
+                        let newPrev = prevFlex + dx;
+                        let newNext = nextFlex - dx;
+                        
+                        // Prevent too small panes
+                        if(newPrev < 200 || newNext < 200) return;
+                        
+                        prevPane.style.flex = `${newPrev} 1 0%`;
+                        nextPane.style.flex = `${newNext} 1 0%`;
+                    }
+                    
+                    function onMouseUp() {
+                        document.removeEventListener('mousemove', onMouseMove);
+                        document.removeEventListener('mouseup', onMouseUp);
+                        overlay.remove();
+                    }
+                    
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
+                });
+            }
+        }
+
+        // Load Memory
+        function getSessions() {
+            return JSON.parse(localStorage.getItem(storeKey) || "[]");
+        }
+        function saveSessions(sessions) {
+            localStorage.setItem(storeKey, JSON.stringify(sessions));
+        }
+        
+        function initChat() {
+            const sessions = getSessions();
+            if (sessions.length > 0) {
+                loadSession(sessions[0].id);
+            } else {
+                startNewSession();
+            }
+        }
+
+        function startNewSession() {
+            currentSessionId = Date.now().toString();
+            chatHistory = [];
+            const sessions = getSessions();
+            sessions.unshift({
+                id: currentSessionId,
+                title: "新对话 " + new Date().toLocaleString(),
+                messages: []
+            });
+            saveSessions(sessions);
+            renderChatArea();
+        }
+        
+        function loadSession(id) {
+            currentSessionId = id;
+            const sessions = getSessions();
+            const session = sessions.find(s => s.id === id);
+            if(session) {
+                chatHistory = session.messages;
+            } else {
+                chatHistory = [];
+            }
+            renderChatArea();
+            document.getElementById('histModal').classList.remove('active');
+        }
+
+        function deleteSession(e, id) {
+            e.stopPropagation();
+            let sessions = getSessions().filter(s => s.id !== id);
+            saveSessions(sessions);
+            if(sessions.length > 0) {
+                loadSession(sessions[0].id);
+            } else {
+                startNewSession();
+            }
+            renderHistoryList();
+        }
+
+        function saveCurrentMessage(role, content) {
+            chatHistory.push({role, content});
+            const sessions = getSessions();
+            const session = sessions.find(s => s.id === currentSessionId);
+            if(session) {
+                session.messages = chatHistory;
+                // auto update title based on first query
+                if (role === "user" && chatHistory.filter(m => m.role === "user").length === 1) {
+                    session.title = content.substring(0, 15) + (content.length > 15 ? "..." : "");
+                }
+                saveSessions(sessions);
+            }
+        }
+
+        function renderChatArea() {
+            const chatBox = document.getElementById("chat");
+            chatBox.innerHTML = ``;
+            chatHistory.forEach(msg => {
+                appendBubble(msg.content, msg.role, false);
+            });
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function openHistory() {
+            renderHistoryList();
+            document.getElementById('histModal').classList.add('active');
+        }
+
+        function renderHistoryList() {
+            const list = document.getElementById('histList');
+            const sessions = getSessions();
+            list.innerHTML = "";
+            sessions.forEach(s => {
+                const div = document.createElement("div");
+                div.className = "history-item " + (s.id === currentSessionId ? "active" : "");
+                div.onclick = () => loadSession(s.id);
+                div.innerHTML = `
+                    <button class="del-hist-btn" onclick="deleteSession(event, '${s.id}')">删除</button>
+                    <div class="history-title">${s.title}</div>
+                    <div class="history-date">${new Date(parseInt(s.id)).toLocaleString()}</div>
+                `;
+                list.appendChild(div);
+            });
+        }
+        
+        msgInput.addEventListener("keydown", function(e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMsg();
+            }
+        });
+        
+        async function sendMsg() {
+            const text = msgInput.value.trim();
+            if(!text) return;
+            
+            msgInput.value = "";
+            appendBubble(text, "user", true);
+            
+            const chatBox = document.getElementById("chat");
+            const aiRow = document.createElement("div");
+            aiRow.className = "bubble-container ai-row";
+            aiRow.innerHTML = `
+                <div class="ai-avatar">AI</div>
+                <div class="bubble ai-bubble">
+                    <span class="typing"></span>
+                    <span class="typing"></span>
+                    <span class="typing"></span>
+                </div>
+            `;
+            chatBox.appendChild(aiRow);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            
+            try {
+                const res = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        book_name: "{{ book_name }}",
+                        message: text,
+                        chat_history: chatHistory
+                    })
+                });
+                const data = await res.json();
+                
+                aiRow.querySelector('.ai-bubble').innerHTML = data.reply.replace(/\\n/g, "<br>");
+                chatBox.scrollTop = chatBox.scrollHeight;
+                
+                saveCurrentMessage("assistant", data.reply);
+                
+            } catch(e) {
+                aiRow.querySelector('.ai-bubble').innerText = "❌ 神经链路连接失败 / 服务端错误：" + e.message;
+            }
+        }
+        
+        function appendBubble(text, role, save = false) {
+            const chatBox = document.getElementById("chat");
+            const row = document.createElement("div");
+            row.className = role === "user" ? "bubble-container user-row" : "bubble-container ai-row";
+            
+            if (role === "user") {
+                row.innerHTML = `<div class="bubble user-bubble">${text.replace(/\\n/g, "<br>")}</div><div class="user-avatar"></div>`;
+            } else {
+                row.innerHTML = `<div class="ai-avatar">AI</div><div class="bubble ai-bubble">${text.replace(/\\n/g, "<br>")}</div>`;
+            }
+            chatBox.appendChild(row);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            if (save) {
+                saveCurrentMessage(role, text);
+            }
+        }
+
+        // On Load Init
+        window.addEventListener("DOMContentLoaded", () => {
+            initChat();
+            updateResizers();
+        });
+    </script>
+</body>
+</html>
