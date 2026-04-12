@@ -34,8 +34,7 @@ def translate_pdf(input_pdf, output_pdf):
         sys.executable, "-m", "pdf2zh.pdf2zh",
         safe_input_pdf,
         "-s", "silicon",
-        "-t", "4",
-        "--ignore-cache"
+        "-t", "4"
     ]
     
     print(f"Executing: {' '.join(cmd)}")

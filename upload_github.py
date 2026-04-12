@@ -14,6 +14,12 @@ def run_cmd(cmd, ignore_error=False):
             print(f"⚠️ 警告 (已忽略): {e}")
 
 def main():
+    if sys.stdout.encoding != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except:
+            pass
+            
     repo_url = "https://github.com/waiteddegree608-ship-it/paperfect.git"
     
     print("="*40)
