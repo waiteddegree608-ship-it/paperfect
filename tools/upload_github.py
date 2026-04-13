@@ -14,17 +14,15 @@ def run_cmd(cmd, ignore_error=False):
             print(f"⚠️ 警告 (已忽略): {e}")
 
 def main():
-    if sys.stdout.encoding != 'utf-8':
-        try:
-            sys.stdout.reconfigure(encoding='utf-8')
-        except:
-            pass
-            
     repo_url = "https://github.com/waiteddegree608-ship-it/paperfect.git"
     
     print("="*40)
     print(" 🚀 开始上传项目到 GitHub")
     print("="*40)
+    
+    # Navigate to the project root directory before committing
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(project_root)
     
     # 1. 初始化
     if not os.path.exists(".git"):

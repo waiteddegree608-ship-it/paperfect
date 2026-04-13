@@ -26,8 +26,8 @@ if not API_KEY: API_KEY = "sk-hyzbfvwbpfolznllsgbwzrwnnkjyoacwrbaderdiwdvfnecp"
 BASE_URL = CONFIG.get("annotator_api_url", CONFIG.get("chat_api_url", "https://api.siliconflow.cn/v1"))
 if not BASE_URL: BASE_URL = "https://api.siliconflow.cn/v1"
 
-MODEL_NAME = CONFIG.get("annotator_model", CONFIG.get("chat_model", "Qwen/Qwen2.5-72B-Instruct"))
-if not MODEL_NAME: MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+MODEL_NAME = CONFIG.get("annotator_model", CONFIG.get("chat_model", "Qwen/Qwen3-VL-235B-A22B-Thinking"))
+if not MODEL_NAME: MODEL_NAME = "Qwen/Qwen3-VL-235B-A22B-Thinking"
 
 # ================= 预设颜色 =================
 COLOR_MAP = {
@@ -55,8 +55,8 @@ def get_ai_annotations_for_page(client, page_text, md_content, page_num):
 
 # Constraints & JSON Format
 - target_text 必须**一字不差**地来源于下面提供的当前页纯文本 (Current Page Text)！截取最具标志性的 5 到 15 个连续英文单词，以此确保能在页面中被无误地检索定位。
-- 宁缺毋滥，每页只挑选 1-4 处最精华的地方批注。如果当前页没有重要内容或是参考文献，请返回空数组 []。
-- 你的输出必须且仅仅是合法的 JSON 数组，不需要任何前后文寒暄，不需要 markdown 语言块包裹，直接输出 JSON。示例格式如下：
+- 【极其重要】你**绝对不能**仅仅因为当前页内容较为细节或没有在“深度解析报告”里大篇幅提及，就放弃批注！无论如何，请为当前页寻找**至少 1-3 处值得注意的句子**进行批注，哪怕仅仅是解释一个算法步骤、参数设置或是给相关工作分类。除非该页完全是纯参考文献列表，否则严禁返回空数组 []！
+- 你的输出必须且仅仅是合法的 JSON 数组，直接输出 JSON。示例格式如下：
 [
   {{
     "target_text": "Extract exact words from the provided page text here...",

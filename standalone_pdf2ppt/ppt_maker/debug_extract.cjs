@@ -5,7 +5,7 @@ const OpenAI = require('openai');
 const config = {
     apiKey: "sk-cdzjqfotorgcynqgzzygcbwrylepjbijikgydpgauwxnpycp",
     baseURL: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen2.5-VL-72B-Instruct",
+    model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
     // model: "OpenGVLab/InternVL2.5-78B",
 };
 

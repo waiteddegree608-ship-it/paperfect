@@ -58,7 +58,7 @@ pip install fastapi uvicorn PyMuPDF openai python-pptx pywin32 pdf2zh
     "parse_model": "Qwen/Qwen3-VL-235B-A22B-Thinking",
     "chat_api_url": "https://api.siliconflow.cn/v1",
     "chat_api_key": "sk-yyy",
-    "chat_model": "Qwen/Qwen2.5-7B-Instruct",
+    "chat_model": "Qwen/Qwen3-VL-235B-A22B-Thinking",
     "translate_api_key": "sk-zzz"
 }
 ```

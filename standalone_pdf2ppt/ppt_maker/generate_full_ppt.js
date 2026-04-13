@@ -58,7 +58,7 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks).
 
     try {
         const response = await client.chat.completions.create({
-            model: "Qwen/Qwen2.5-7B-Instruct",
+            model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
             messages: [{ role: "user", content: prompt }],
             temperature: 0.2
         });
@@ -158,7 +158,7 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
 
     try {
         const response = await client.chat.completions.create({
-            model: "Qwen/Qwen2.5-VL-72B-Instruct",
+            model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
             messages: [
                 {
                     role: "user",
@@ -192,20 +192,27 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
         };
     } catch (e) {
         console.error(`   ! Error processing ${imageName}:`, e.message);
-        return null;
+        process.exit(1);
     }
 }
 
 async function run() {
     console.log("1. Reading Markdown and enumerating images...");
     const mdContent = fs.readFileSync(mdPath, 'utf-8');
-    const files = fs.readdirSync(imgDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg')).sort();
+    
+    let files = [];
+    try {
+        files = fs.readdirSync(imgDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg')).sort();
+    } catch (e) {
+        console.log(`Warning: Image dir ${imgDir} not found or empty. Generating text-only slides.`);
+    }
     
     console.log(`Found ${files.length} images: ${files.join(', ')}`);
     
-    // Generate global slides if in creative mode
+    // Generate global slides if in creative mode or if there are no images
     let globalSlides = null;
-    if (MODE === 'creative') {
+    if (MODE === 'creative' || files.length === 0) {
+        console.log("Generating semantic structure slides...");
         globalSlides = await generateGlobalSlides(mdContent);
     }
     const results = [];
@@ -457,4 +464,7 @@ async function run() {
     console.log("========================================");
 }
 
-run().catch((e) => console.error("Global Error:", e));
+run().catch((e) => {
+    console.error("Global Error:", e);
+    process.exit(1);
+});

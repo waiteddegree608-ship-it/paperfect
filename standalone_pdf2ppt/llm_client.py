@@ -45,7 +45,7 @@ class PaperReaderBot:
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{b64}",
-                            "detail": "high"
+                            "detail": "low"
                         }
                     })
                 # 附加指令
@@ -57,7 +57,8 @@ class PaperReaderBot:
                     messages=messages
                 )
                 
-                # We need to clean the thinking block effectively if exist
+                if not response.choices:
+                    raise RuntimeError(f"SiliconFlow API returned an empty response. You may have reached a token limit or an image size limit for the given model: {response}")
                 text = response.choices[0].message.content
                 import re
                 text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -122,7 +123,7 @@ class PaperReaderBot:
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{b64}",
-                            "detail": "high"
+                            "detail": "low"
                         }
                     })
                 content.append({"type": "text", "text": prompt_text})
@@ -133,6 +134,8 @@ class PaperReaderBot:
                     messages=messages
                 )
                 
+                if not response.choices:
+                    raise RuntimeError(f"SiliconFlow API returned an empty response. You may have reached a token limit or an image size limit for the given model.")
                 text = response.choices[0].message.content
                 import re
                 text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -179,7 +182,7 @@ class PaperReaderBot:
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{b64}",
-                            "detail": detail
+                            "detail": "low"
                         }
                     })
                 content.append({"type": "text", "text": prompt_text})
@@ -189,6 +192,8 @@ class PaperReaderBot:
                     model=self.model_name,
                     messages=messages
                 )
+                if not response.choices:
+                    raise RuntimeError(f"SiliconFlow API returned an empty response.")
                 text = response.choices[0].message.content
                 import re
                 return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
