@@ -6,3 +6,4 @@ python-pptx
 pywin32
 python-multipart
 jinja2
+pdf2zh
