@@ -91,9 +91,6 @@ npm install
   cd standalone_pdf2ppt/ppt_maker && npm run dev
   ```
 
-服务器热启动后，终端将输出专属的本地监听地址。通常情况下，通过浏览器直接访问 `http://127.0.0.1:8899` 即可一秒切入赛博质感的 AI 伴读实战面板。
-在首页可以通过拖拽上传目标 PDF 触发解析。系统默认集成基础色调适配系统（内置 Antigravity Neon, Dark+, Cyan Light 方案）。
-
 ## 注意事项
 
 - 在处理几百页的无字化或纯图 PDF 时，程序会在 `imports/` 或 `papers/` 目录下生成切片文件以供多线程分发处理。如果在分析过程中断，重新上传相同文件即可继续进行。
