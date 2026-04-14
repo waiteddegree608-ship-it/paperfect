@@ -1,6 +1,8 @@
 # Paperfect
 Paperfect 是一个本地化的 Web 应用，用于将学术教材和论文进行格式化提取、翻译解析以及交互式阅读辅助。它主要结合了视觉大语言模型（VLM）与本地处理逻辑，实现学术文档的知识库化。
-
+![首页 Image](ui1.png)
+![提示词设置 Image](ui2.png)
+![论文处理 Image](ui3.png)
 ## 主要功能
 
 1. **教材解析 (PDF 转 Markdown)**
