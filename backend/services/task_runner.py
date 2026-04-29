@@ -29,7 +29,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
             await run_subprocess("Book Builder", [sys.executable, script_path, pdf_path])
         else:
             base_dir = get_base_dir()
-            target_dir = os.path.join(base_dir, "data", "papers")
+            target_dir = os.path.join(base_dir, "data", "papers", book_name)
             
             # Paths according to new structure
             raw_pdf = pdf_path
@@ -39,10 +39,11 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
             out_ppt = os.path.join(target_dir, "pptx", f"{book_name}_Full_Presentation.pptx")
             annotated_pdf = os.path.join(target_dir, "marked", f"{book_name}_annotated.pdf")
             
+            for sub in ["translated", "parsed", "pptx", "marked", "images", "cache"]:
+                os.makedirs(os.path.join(target_dir, sub), exist_ok=True)
+
             # Provide a work_dir for legacy scripts that expect it
-            work_dir = os.path.join(target_dir, "raw", book_name)
-            os.makedirs(work_dir, exist_ok=True)
-            shutil.copy(pdf_path, os.path.join(work_dir, f"{book_name}.pdf"))
+            work_dir = os.path.join(target_dir, "raw")
 
             # Step 1: Translate and Parse in parallel
             async def run_translate():

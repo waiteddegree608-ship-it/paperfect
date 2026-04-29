@@ -12,12 +12,12 @@ async def export_json_for_pptx_main(book_name: str):
         from pptx.enum.shapes import MSO_SHAPE_TYPE
         
         # Check papers first, then textbooks
-        papers_dir = os.path.join(get_base_dir(), "data", "papers", "pptx")
-        textbooks_dir = os.path.join(get_base_dir(), "data", "textbooks", "pptx")
+        papers_dir = os.path.join(get_base_dir(), "data", "papers")
+        textbooks_dir = os.path.join(get_base_dir(), "data", "textbooks")
         
-        pptx_path = os.path.join(papers_dir, f"{book_name}_Full_Presentation.pptx")
+        pptx_path = os.path.join(papers_dir, book_name, "pptx", f"{book_name}_Full_Presentation.pptx")
         if not os.path.exists(pptx_path):
-            pptx_path = os.path.join(textbooks_dir, f"{book_name}_Full_Presentation.pptx")
+            pptx_path = os.path.join(textbooks_dir, book_name, "pptx", f"{book_name}_Full_Presentation.pptx")
             
         if not os.path.exists(pptx_path):
             return {"error": "PPTX not found"}

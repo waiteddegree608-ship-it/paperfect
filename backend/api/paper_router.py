@@ -25,13 +25,13 @@ async def delete_target(name: str, type: str):
 
 @router.post("/api/resume/{book_name}")
 async def resume_task(book_name: str):
-    target_dir = os.path.join(get_base_dir(), "data", "textbooks", "raw")
+    target_dir = os.path.join(get_base_dir(), "data", "textbooks", book_name, "raw")
     pdf_path = os.path.join(target_dir, f"{book_name}.pdf")
     if os.path.exists(pdf_path):
         submit_task(pdf_path, book_name, "book")
         return {"status": "processing"}
         
-    target_dir = os.path.join(get_base_dir(), "data", "papers", "raw")
+    target_dir = os.path.join(get_base_dir(), "data", "papers", book_name, "raw")
     pdf_path_paper = os.path.join(target_dir, f"{book_name}.pdf")
     if os.path.exists(pdf_path_paper):
         submit_task(pdf_path_paper, book_name, "paper", "提示词汇总", "creative")
@@ -41,7 +41,7 @@ async def resume_task(book_name: str):
 
 @router.get("/api/status/{item_type}/{book_name}")
 async def check_status(item_type: str, book_name: str):
-    target_dir = os.path.join(get_base_dir(), "data", "textbooks" if item_type == "book" else "papers")
+    target_dir = os.path.join(get_base_dir(), "data", "textbooks" if item_type == "book" else "papers", book_name)
     
     if item_type == "book":
         kb_path = os.path.join(target_dir, "parsed", f"{book_name}_KnowledgeBase.md")
