@@ -29,6 +29,13 @@ interface SlideImage {
   height: number;
 }
 
+
+interface SlideData {
+  slideImage: SlideImage | null;
+  elements: CanvasElement[];
+}
+
+// -------------------------------------------------------------
 // -------------------------------------------------------------
 // STANDARDIZED CANVAS DIMENSIONS (16:9 Aspect Ratio)
 const SLIDE_WIDTH = 1280;
@@ -37,8 +44,13 @@ const PX_TO_INCH = 128; // pptxgenjs uses 10 x 5.625 inches for 16:9 by default.
 // -------------------------------------------------------------
 
 const App: React.FC = () => {
+
+  const [allSlides, setAllSlides] = useState<SlideData[]>([]);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+
   const [slideImage, setSlideImage] = useState<SlideImage | null>(null);
   const [elements, setElements] = useState<CanvasElement[]>([]);
+
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isDrawing, setIsDrawing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -54,10 +66,130 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [startPoint, setStartPoint] = useState({ x: 0, y: 0 });
+  const lastPointerRef = useRef<{x: number, y: number} | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [draggingElementId, setDraggingElementId] = useState<string | null>(null);
+  const [draggingHandle, setDraggingHandle] = useState<{ id: string, type: 'start' | 'end' } | null>(null);
 
   const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff', '#000000'];
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const book = params.get('book');
+    if (!book) return;
+
+    const fetchPpt = async () => {
+      try {
+        const port = window.location.port === '8081' ? '8899' : window.location.port;
+        const res = await fetch(`http://${window.location.hostname}:${port}/api/ppt_export_json/${encodeURIComponent(book)}`);
+        const json = await res.json();
+        
+        if (json.slides && json.slides.length > 0) {
+          const parsedSlides: SlideData[] = json.slides.map((s: any) => {
+             let sImg: SlideImage | null = null;
+             const newEls: CanvasElement[] = [];
+             const SCALE = 1280 / 960; // Convert 96 DPI backend points to 128 DPI canvas coords
+             
+             s.elements.forEach((el: any) => {
+                if (el.type === 'image' && !sImg) {
+                   sImg = {
+                     data: el.content,
+                     intrinsicWidth: el.size.width * SCALE,
+                     intrinsicHeight: el.size.height * SCALE,
+                     x: Math.round(el.position.x * SCALE),
+                     y: Math.round(el.position.y * SCALE),
+                     width: Math.round(el.size.width * SCALE),
+                     height: Math.round(el.size.height * SCALE)
+                   };
+                } else if (el.type === 'text') {
+                   newEls.push({
+                     id: el.id || Math.random().toString(36).substr(2, 9),
+                     type: 'text',
+                     x: Math.round(el.position.x * SCALE),
+                     y: Math.round(el.position.y * SCALE),
+                     text: el.content || '',
+                     color: el.style?.color || '#000000',
+                     fontSize: Math.round((el.style?.fontSize || 18) * SCALE),
+                     isEditing: false,
+                     isSelected: false,
+                     maxWidth: Math.round(el.size.width * SCALE),
+                     maxHeight: Math.round(el.size.height * SCALE),
+                     textAlign: el.style?.textAlign || 'left',
+                     valign: el.style?.valign || 'top'
+                   });
+                } else if (el.type === 'shape' && (el.content === 'arrow' || el.content === 'line')) {
+                   const sx = el.position.x * SCALE;
+                   const sy = el.position.y * SCALE;
+                   const ew = el.size.width * SCALE;
+                   const eh = el.size.height * SCALE;
+                   
+                   const flipH = el.style?.flipH;
+                   const flipV = el.style?.flipV;
+                   
+                   let startX = sx;
+                   let endX = sx + ew;
+                   let startY = sy;
+                   let endY = sy + eh;
+                   
+                   if (flipH) { startX = sx + ew; endX = sx; }
+                   if (flipV) { startY = sy + eh; endY = sy; }
+
+                   newEls.push({
+                      id: el.id || Math.random().toString(36).substr(2, 9),
+                      type: 'arrow',
+                      startX,
+                      startY,
+                      endX,
+                      endY,
+                      color: el.style?.stroke || '#3b82f6',
+                      width: el.style?.strokeWidth || 3,
+                      isSelected: false
+                   });
+                }
+             });
+             
+             return { slideImage: sImg, elements: newEls };
+          });
+          
+          setAllSlides(parsedSlides);
+          if (parsedSlides.length > 0) {
+            setSlideImage(parsedSlides[0].slideImage);
+            setElements(parsedSlides[0].elements);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load PPT", err);
+      }
+    };
+    fetchPpt();
+  }, []);
+
+  // Save current slide state to allSlides when switching
+  const saveCurrentSlide = () => {
+    setAllSlides(prev => {
+       const newSlides = [...prev];
+       if (newSlides[currentSlideIndex]) {
+          newSlides[currentSlideIndex].slideImage = slideImage;
+          newSlides[currentSlideIndex].elements = elements.map(el => ({...el, isSelected: false, isEditing: false}));
+       }
+       return newSlides;
+    });
+  };
+
+  const switchSlide = (newIndex: number) => {
+    if (newIndex < 0 || newIndex >= allSlides.length) return;
+    saveCurrentSlide();
+    setCurrentSlideIndex(newIndex);
+    // Timeout to ensure state commits before loading next to prevent race conditions
+    setTimeout(() => {
+       setAllSlides(prev => {
+          setSlideImage(prev[newIndex].slideImage);
+          setElements(prev[newIndex].elements);
+          return prev;
+       });
+    }, 0);
+  };
+
 
   useEffect(() => {
     const handlePreventScroll = (e: Event) => {
@@ -78,8 +210,7 @@ const App: React.FC = () => {
         const availableW = workspaceRect.width - 64; 
         const availableH = workspaceRect.height - 64;
         const scaleW = availableW / SLIDE_WIDTH;
-        const scaleH = availableH / SLIDE_HEIGHT;
-        const minScale = Math.max(0.1, Math.min(scaleW, scaleH));
+        const minScale = Math.max(0.1, scaleW);
         setViewScale(minScale);
       }
     };
@@ -156,8 +287,7 @@ const App: React.FC = () => {
 
     if (currentTool === 'arrow') {
       setIsDrawing(true);
-      setStartPoint({ x, y });
-      
+      setStartPoint({ x, y }); lastPointerRef.current = { x, y };
       const newArrow: ArrowElement = {
         id: generateId(), type: 'arrow',
         startX: x, startY: y, endX: x, endY: y,
@@ -178,7 +308,7 @@ const App: React.FC = () => {
   };
 
   const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing && !draggingElementId) return;
+    if (!isDrawing && !draggingElementId && !draggingHandle) return;
     const { x, y } = getCanvasCoordinates(e);
 
     if (isDrawing && currentTool === 'arrow') {
@@ -186,21 +316,35 @@ const App: React.FC = () => {
         if (idx === elements.length - 1 && el.type === 'arrow') return { ...el, endX: x, endY: y };
         return el;
       }));
-    } else if (draggingElementId) {
-      setElements(elements.map(el => {
-        if (el.id === draggingElementId) {
-          if (el.type === 'text') return { ...el, x: x - dragOffset.x, y: y - dragOffset.y };
-          if (el.type === 'arrow') {
-            const dx = x - startPoint.x; const dy = y - startPoint.y;
-            return {
-              ...el, startX: el.startX + dx, startY: el.startY + dy,
-              endX: el.endX + dx, endY: el.endY + dy
-            };
+    } else if (draggingHandle) {
+      setElements(prev => prev.map(el => {
+        if (el.id === draggingHandle.id && el.type === 'arrow') {
+          if (draggingHandle.type === 'start') {
+             return { ...el, startX: x, startY: y };
+          } else {
+             return { ...el, endX: x, endY: y };
           }
         }
         return el;
       }));
-      setStartPoint({ x, y }); 
+    } else if (draggingElementId) {
+      if (lastPointerRef.current) {
+         const dx = x - lastPointerRef.current.x;
+         const dy = y - lastPointerRef.current.y;
+         setElements(prev => prev.map(el => {
+           if (el.id === draggingElementId) {
+             if (el.type === 'text') return { ...el, x: x - dragOffset.x, y: y - dragOffset.y };
+             if (el.type === 'arrow') {
+               return {
+                 ...el, startX: el.startX + dx, startY: el.startY + dy,
+                 endX: el.endX + dx, endY: el.endY + dy
+               };
+             }
+           }
+           return el;
+         }));
+         lastPointerRef.current = { x, y };
+      }
     }
   };
 
@@ -215,6 +359,7 @@ const App: React.FC = () => {
     }
     setIsDrawing(false);
     setDraggingElementId(null);
+    setDraggingHandle(null);
   };
 
   const handleElementPointerDown = (e: React.MouseEvent | React.TouchEvent, id: string) => {
@@ -222,14 +367,13 @@ const App: React.FC = () => {
     if (currentTool !== 'select') return;
     
     const { x, y } = getCanvasCoordinates(e);
-    setStartPoint({ x, y });
-    
-    const element = elements.find(el => el.id === id);
+    setStartPoint({ x, y }); lastPointerRef.current = { x, y };
+      const element = elements.find(el => el.id === id);
     if (element) {
       if (element.type === 'text') setDragOffset({ x: x - element.x, y: y - element.y });
       setDraggingElementId(id);
       
-      setElements(elements.map(el => ({
+      setElements(prev => prev.map(el => ({
         ...el, isSelected: el.id === id,
         ...(el.id === id && el.type === 'text' && ('detail' in e && (e as React.MouseEvent).detail === 2) ? { isEditing: true } : {})
       })));
@@ -237,11 +381,11 @@ const App: React.FC = () => {
   };
 
   const handleTextChange = (id: string, newText: string) => {
-    setElements(elements.map(el => el.id === id && el.type === 'text' ? { ...el, text: newText } : el));
+    setElements(prev => prev.map(el => el.id === id && el.type === 'text' ? { ...el, text: newText } : el));
   };
 
   const finishTextEditing = (id: string) => {
-    setElements(elements.map(el => {
+    setElements(prev => prev.map(el => {
       if (el.id === id && el.type === 'text') {
         if (el.text.trim() === '') return null as any; 
         return { ...el, isEditing: false };
@@ -251,68 +395,69 @@ const App: React.FC = () => {
   };
 
   const deleteSelected = () => {
-    setElements(elements.filter(el => !el.isSelected));
+    setElements(prev => prev.filter(el => !el.isSelected));
   };
 
+  
   // =========================================================
   // NATIVE PPTX EXPORT ENGINE
   const exportPPTX = async () => {
-    setElements(elements.map(el => ({ ...el, isSelected: false, isEditing: false })));
+    saveCurrentSlide(); // flush current pending edits
     
     setTimeout(async () => {
       const pres = new pptxgen();
       pres.layout = 'LAYOUT_16x9'; 
-      const slide = pres.addSlide();
-      slide.background = { color: 'FFFFFF' };
+      
+      allSlides.forEach(slideData => {
+          const slide = pres.addSlide();
+          slide.background = { color: 'FFFFFF' };
 
-      // 1. Place the main image
-      if (slideImage) {
-        slide.addImage({
-          data: slideImage.data,
-          x: slideImage.x / PX_TO_INCH,
-          y: slideImage.y / PX_TO_INCH,
-          w: slideImage.width / PX_TO_INCH,
-          h: slideImage.height / PX_TO_INCH
-        });
-      }
+          if (slideData.slideImage) {
+            slide.addImage({
+              data: slideData.slideImage.data,
+              x: slideData.slideImage.x / PX_TO_INCH,
+              y: slideData.slideImage.y / PX_TO_INCH,
+              w: slideData.slideImage.width / PX_TO_INCH,
+              h: slideData.slideImage.height / PX_TO_INCH
+            });
+          }
 
-      // 2. Map all Canvas Elements to PPT shapes
-      elements.forEach(el => {
-        if (el.type === 'text' && (el as TextElement).text.trim()) {
-           const t = el as TextElement;
-           slide.addText(t.text, {
-              x: t.x / PX_TO_INCH,
-              y: t.y / PX_TO_INCH,
-              w: (t.maxWidth || 250) / PX_TO_INCH,
-              h: 0.5,
-              fontSize: t.fontSize * 0.75, // Adjust web pt to ppt pt roughly
-              fontFace: 'Arial',
-              color: t.color.replace('#', ''),
-              bold: true,
-              valign: "top"
-           });
-        }
-        else if (el.type === 'arrow') {
-           const a = el as ArrowElement;
-           let w = (a.endX - a.startX) / PX_TO_INCH;
-           let h = (a.endY - a.startY) / PX_TO_INCH;
-           let x = a.startX / PX_TO_INCH;
-           let y = a.startY / PX_TO_INCH;
-           
-           // Handle negative deltas via flipping for pptxgenjs
-           let flipH = w < 0;
-           let flipV = h < 0;
+          slideData.elements.forEach(el => {
+            if (el.type === 'text' && (el as TextElement).text.trim()) {
+               const t = el as TextElement;
+               slide.addText(t.text, {
+                  x: t.x / PX_TO_INCH,
+                  y: t.y / PX_TO_INCH,
+                  w: (t.maxWidth || 250) / PX_TO_INCH,
+                  h: 0.5,
+                  fontSize: t.fontSize * 0.75,
+                  fontFace: 'Arial',
+                  color: t.color.replace('#', ''),
+                  bold: true,
+                  valign: "top"
+               });
+            }
+            else if (el.type === 'arrow') {
+               const a = el as ArrowElement;
+               let w = (a.endX - a.startX) / PX_TO_INCH;
+               let h = (a.endY - a.startY) / PX_TO_INCH;
+               let x = a.startX / PX_TO_INCH;
+               let y = a.startY / PX_TO_INCH;
+               
+               let flipH = w < 0;
+               let flipV = h < 0;
 
-           slide.addShape(pres.ShapeType.line, {
-              x: flipH ? x + w : x,
-              y: flipV ? y + h : y,
-              w: Math.max(Math.abs(w), 0.01),
-              h: Math.max(Math.abs(h), 0.01),
-              flipH,
-              flipV,
-              line: { color: a.color.replace('#',''), width: a.width, endArrowType: "triangle" }
-           });
-        }
+               slide.addShape(pres.ShapeType.line, {
+                  x: flipH ? x + w : x,
+                  y: flipV ? y + h : y,
+                  w: Math.max(Math.abs(w), 0.01),
+                  h: Math.max(Math.abs(h), 0.01),
+                  flipH,
+                  flipV,
+                  line: { color: a.color.replace('#',''), width: a.width, endArrowType: "triangle" }
+               });
+            }
+          });
       });
 
       try {
@@ -324,6 +469,7 @@ const App: React.FC = () => {
     }, 100);
   };
   // =========================================================
+
 
   const loadAIPayload = async () => {
     if (!slideImage) { alert("Please upload an image first."); return; }
@@ -423,8 +569,17 @@ const App: React.FC = () => {
           ><Trash2 size={18} /></button>
         </div>
 
+        
         {/* Actions */}
         <div className="flex items-center gap-2">
+          {allSlides.length > 0 && (
+              <div className="flex items-center gap-2 mr-4 bg-slate-800 rounded-lg px-2 py-1">
+                 <button onClick={() => switchSlide(currentSlideIndex - 1)} disabled={currentSlideIndex === 0} className="px-2 py-1 text-slate-400 hover:text-white disabled:opacity-30">&lt;</button>
+                 <span className="text-sm font-medium">Slide {currentSlideIndex + 1} / {allSlides.length}</span>
+                 <button onClick={() => switchSlide(currentSlideIndex + 1)} disabled={currentSlideIndex === allSlides.length - 1} className="px-2 py-1 text-slate-400 hover:text-white disabled:opacity-30">&gt;</button>
+              </div>
+          )}
+
           <label className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all rounded-lg cursor-pointer text-sm font-medium">
             <Upload size={18} />
             <span>Load Image</span>
@@ -449,20 +604,22 @@ const App: React.FC = () => {
       {/* Slide Workspace */}
       <div 
         ref={workspaceRef}
-        className="flex-1 relative w-full h-full glass-panel rounded-xl shadow-2xl flex items-center justify-center p-4 bg-slate-900/50"
+        className="flex-1 min-h-0 relative w-full h-full glass-panel rounded-xl shadow-2xl overflow-y-auto overflow-x-hidden p-4 bg-slate-900/50"
       >
-        {slideImage ? (
-          <div
-            id="canvas-container"
-            ref={canvasRef}
-            className="relative bg-white shadow-2xl origin-center"
-            style={{ 
-              width: `${SLIDE_WIDTH}px`, 
-              height: `${SLIDE_HEIGHT}px`,
-              transform: `scale(${viewScale})`,
-              cursor: currentTool === 'select' ? 'default' : currentTool === 'text' ? 'text' : 'crosshair',
-              overflow: 'hidden'
-            }}
+        <div className="w-full flex justify-center pb-8" style={{ minHeight: 'max-content' }}>
+        {(slideImage || elements.length > 0 || allSlides.length > 0) ? (
+          <div className="relative flex-shrink-0" style={{ width: `${SLIDE_WIDTH * viewScale}px`, height: `${SLIDE_HEIGHT * viewScale}px` }}>
+            <div
+              id="canvas-container"
+              ref={canvasRef}
+              className="absolute left-0 top-0 bg-white shadow-2xl origin-top-left flex-shrink-0"
+              style={{ 
+                width: `${SLIDE_WIDTH}px`, 
+                height: `${SLIDE_HEIGHT}px`,
+                transform: `scale(${viewScale})`,
+                cursor: currentTool === 'select' ? 'default' : currentTool === 'text' ? 'text' : 'crosshair',
+                overflow: 'visible'
+              }}
             onMouseDown={handlePointerDown} onMouseMove={handlePointerMove} onMouseUp={handlePointerUp} onMouseLeave={handlePointerUp}
             onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp}
           >
@@ -470,11 +627,13 @@ const App: React.FC = () => {
             <div id="slide-background" className="absolute inset-0 bg-white" />
 
             {/* Injected Image */}
-            <img 
-              id="slide-image" src={slideImage.data} alt="Slide Content" draggable={false}
-              className="absolute pointer-events-auto"
-              style={{ left: slideImage.x, top: slideImage.y, width: slideImage.width, height: slideImage.height }}
-            />
+            {slideImage && (
+              <img 
+                id="slide-image" src={slideImage.data} alt="Slide Content" draggable={false}
+                className="absolute pointer-events-auto"
+                style={{ left: slideImage.x, top: slideImage.y, width: slideImage.width, height: slideImage.height }}
+              />
+            )}
             
             {/* SVG OVERLAY FOR ARROWS */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }}>
@@ -500,8 +659,59 @@ const App: React.FC = () => {
                   />
                   {arrow.isSelected && currentTool === 'select' && (
                     <>
-                      <circle cx={arrow.startX} cy={arrow.startY} r="5" fill="#fff" stroke="#3b82f6" strokeWidth="2" className="pointer-events-none" />
-                      <circle cx={arrow.endX} cy={arrow.endY} r="5" fill="#fff" stroke="#3b82f6" strokeWidth="2" className="pointer-events-none" />
+                      <g 
+                          className="pointer-events-auto cursor-crosshair"
+                          onPointerDown={(e) => { 
+                            e.stopPropagation(); 
+                            if (currentTool === 'select') { 
+                              (e.target as Element).setPointerCapture(e.pointerId);
+                              setDraggingHandle({ id: arrow.id, type: 'start' }); 
+                            } 
+                          }}
+                          onPointerMove={(e) => {
+                            if (draggingHandle?.id === arrow.id && draggingHandle.type === 'start') {
+                               const rect = canvasRef.current?.getBoundingClientRect();
+                               if (!rect) return;
+                               const x = (e.clientX - rect.left) / viewScale;
+                               const y = (e.clientY - rect.top) / viewScale;
+                               setElements(prev => prev.map(el => (el.id === arrow.id && el.type === 'arrow') ? { ...el, startX: x, startY: y } : el));
+                            }
+                          }}
+                          onPointerUp={(e) => {
+                             (e.target as Element).releasePointerCapture(e.pointerId);
+                             setDraggingHandle(null);
+                          }}
+                        >
+                          <circle cx={arrow.startX} cy={arrow.startY} r="25" fill="transparent" />
+                          <circle cx={arrow.startX} cy={arrow.startY} r="8" fill="#fff" stroke="#3b82f6" strokeWidth="2" className="pointer-events-none hover:scale-125 transition-transform" />
+                        </g>
+
+                        <g 
+                          className="pointer-events-auto cursor-crosshair"
+                          onPointerDown={(e) => { 
+                            e.stopPropagation(); 
+                            if (currentTool === 'select') { 
+                              (e.target as Element).setPointerCapture(e.pointerId);
+                              setDraggingHandle({ id: arrow.id, type: 'end' }); 
+                            } 
+                          }}
+                          onPointerMove={(e) => {
+                            if (draggingHandle?.id === arrow.id && draggingHandle.type === 'end') {
+                               const rect = canvasRef.current?.getBoundingClientRect();
+                               if (!rect) return;
+                               const x = (e.clientX - rect.left) / viewScale;
+                               const y = (e.clientY - rect.top) / viewScale;
+                               setElements(prev => prev.map(el => (el.id === arrow.id && el.type === 'arrow') ? { ...el, endX: x, endY: y } : el));
+                            }
+                          }}
+                          onPointerUp={(e) => {
+                             (e.target as Element).releasePointerCapture(e.pointerId);
+                             setDraggingHandle(null);
+                          }}
+                        >
+                          <circle cx={arrow.endX} cy={arrow.endY} r="25" fill="transparent" />
+                          <circle cx={arrow.endX} cy={arrow.endY} r="8" fill="#fff" stroke="#3b82f6" strokeWidth="2" className="pointer-events-none hover:scale-125 transition-transform" />
+                        </g>
                     </>
                   )}
                 </g>
@@ -516,7 +726,7 @@ const App: React.FC = () => {
                   className={`absolute pointer-events-auto group ${currentTool === 'select' ? 'cursor-move' : ''}`}
                   style={{ left: textEl.x, top: textEl.y }}
                   onMouseDown={(e) => handleElementPointerDown(e, textEl.id)}
-                  onDoubleClick={() => { if (currentTool === 'select') setElements(elements.map(el => el.id === textEl.id ? { ...el, isEditing: true } : el)); }}
+                  onDoubleClick={(e) => { e.stopPropagation(); if (currentTool === 'select') setElements(prev => prev.map(el => el.id === textEl.id ? { ...el, isEditing: true } : el)); }}
                 >
                   {textEl.isSelected && !textEl.isEditing && ( <div className="absolute -inset-2 border border-dashed border-indigo-400 rounded bg-indigo-500/10 pointer-events-none" /> )}
                   
@@ -530,7 +740,20 @@ const App: React.FC = () => {
                   ) : (
                     <div 
                       className="px-1 py-0 drop-shadow-md"
-                      style={{ color: textEl.color, fontSize: `${textEl.fontSize}px`, fontWeight: 'bold', textShadow: '0 1px 2px rgba(255,255,255,0.8)', width: textEl.maxWidth ? `${textEl.maxWidth}px` : undefined, whiteSpace: textEl.maxWidth ? 'pre-wrap' : 'nowrap', wordBreak: textEl.maxWidth ? 'break-word' : 'normal' }}
+                      style={{ 
+                         color: textEl.color, 
+                         fontSize: `${textEl.fontSize}px`, 
+                         fontWeight: 'bold', 
+                         textAlign: (textEl as any).textAlign || 'left',
+                         display: 'flex',
+                         flexDirection: 'column',
+                         justifyContent: (textEl as any).valign === 'middle' ? 'center' : ((textEl as any).valign === 'bottom' ? 'flex-end' : 'flex-start'),
+                         height: (textEl as any).maxHeight ? `${(textEl as any).maxHeight}px` : 'auto',
+                         textShadow: '0 1px 2px rgba(255,255,255,0.8)', 
+                         width: textEl.maxWidth ? `${textEl.maxWidth + 4}px` : undefined, 
+                         whiteSpace: textEl.maxWidth ? 'pre-wrap' : 'nowrap', 
+                         wordBreak: textEl.maxWidth ? 'break-all' : 'normal' 
+                      }}
                     >
                       {textEl.text}
                     </div>
@@ -539,6 +762,7 @@ const App: React.FC = () => {
               ))}
             </div>
 
+          </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-700/50 rounded-2xl bg-slate-800/20 max-w-lg w-full">
@@ -554,6 +778,7 @@ const App: React.FC = () => {
             </label>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

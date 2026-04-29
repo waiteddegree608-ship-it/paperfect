@@ -3,7 +3,20 @@ import { OpenAI } from 'openai';
 import pptxgen from 'pptxgenjs';
 import sizeOf from 'image-size';
 
-const apiKey = "sk-cdzjqfotorgcynqgzzygcbwrylepjbijikgydpgauwxnpycp";
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let apiKey = "";
+try {
+  const configObj = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'config.json'), 'utf-8'));
+  apiKey = configObj.parse_api_key && configObj.parse_api_key.length > 0 ? configObj.parse_api_key[0] : "";
+} catch (e) {
+  console.warn("Could not read config.json", e);
+}
+
 const client = new OpenAI({
   apiKey: apiKey,
   baseURL: "https://api.siliconflow.cn/v1"

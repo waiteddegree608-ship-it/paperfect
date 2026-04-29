@@ -2,10 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const OpenAI = require('openai');
 
+let apiKey = "";
+try {
+    const mainConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'config.json'), 'utf-8'));
+    apiKey = mainConfig.parse_api_key && mainConfig.parse_api_key.length > 0 ? mainConfig.parse_api_key[0] : "";
+} catch (e) {}
+
 const config = {
-    apiKey: "sk-cdzjqfotorgcynqgzzygcbwrylepjbijikgydpgauwxnpycp",
+    apiKey: apiKey,
     baseURL: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen2.5-VL-72B-Instruct",
+    model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
     // model: "OpenGVLab/InternVL2.5-78B",
 };
 

@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+PyMuPDF
+openai
+python-pptx
+pywin32
+git+https://github.com/Byaidu/PDFMathTranslate.git

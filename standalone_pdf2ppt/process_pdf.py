@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--api_key", required=True, help="SiliconFlow or OpenAI API Key")
     parser.add_argument("--base_url", default="https://api.siliconflow.cn/v1", help="API Base URL")
     parser.add_argument("--mode", default="creative", choices=["simple", "creative"], help="PPT Generation mode")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-72B-Instruct", help="LLM for MD extraction")
+    parser.add_argument("--model", default="Qwen/Qwen3-VL-235B-A22B-Thinking", help="LLM for MD extraction")
     args = parser.parse_args()
 
     pdf_path = os.path.abspath(args.pdf_path)

@@ -438,6 +438,17 @@
                 <div class="processing-text">正在翻译与解析...</div>
                 <div class="processing-title">《{{ paper.name }}》</div>
             </div>
+            {% elif paper.status == 'interrupted' %}
+            <div class="card interrupted" id="interrupted-{{ paper.name }}-paper" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
+                    <div style="margin-bottom:15px; text-align:center;">
+                        <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ paper.name }}》</div>
+                    </div>
+                    <button class="resume-btn" onclick="resumeParse('{{ paper.name }}', event)" style="background: var(--primary-accent); border:none; padding:8px 20px; border-radius:6px; color:var(--bg-color); font-weight:600; cursor:pointer; font-size:13px; transition:0.2s; z-index: 20;">
+                        继续
+                    </button>
+                </div>
+            </div>
             {% else %}
             <div class="card" onclick="handleCardClick(event, '/chat/{{ paper.name }}')">
                 <div class="card-select-layer">
@@ -511,7 +522,7 @@
             </div>
             <div class="form-group">
                 <label>纯文本大模型名称 (推荐响应极快的模型)</label>
-                <input type="text" id="chat_model" placeholder="Qwen/Qwen2.5-7B-Instruct">
+                <input type="text" id="chat_model" placeholder="Qwen/Qwen3-VL-235B-A22B-Thinking">
             </div>
             
             <div class="form-section-title">📄 论文深度分析引擎 (论文转PPT提取用)</div>
@@ -525,7 +536,7 @@
             </div>
             <div class="form-group">
                 <label>大模型名称</label>
-                <input type="text" id="paper_model" placeholder="Qwen/Qwen2.5-72B-Instruct">
+                <input type="text" id="paper_model" placeholder="Qwen/Qwen3-VL-235B-A22B-Thinking">
             </div>
             
             <div class="form-section-title">🖍️ PDF智能批注引擎 (生成带标记的PDF用)</div>
@@ -539,7 +550,7 @@
             </div>
             <div class="form-group">
                 <label>大模型名称</label>
-                <input type="text" id="annotator_model" placeholder="Qwen/Qwen2.5-72B-Instruct">
+                <input type="text" id="annotator_model" placeholder="Qwen/Qwen3-VL-235B-A22B-Thinking">
             </div>
             
             <button class="save-btn" onclick="saveSettings()">保存配置并全局生效</button>

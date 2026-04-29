@@ -58,7 +58,7 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks).
 
     try {
         const response = await client.chat.completions.create({
-            model: "Qwen/Qwen2.5-7B-Instruct",
+            model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
             messages: [{ role: "user", content: prompt }],
             temperature: 0.2
         });
@@ -156,56 +156,70 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
 }
     `;
 
-    try {
-        const response = await client.chat.completions.create({
-            model: "Qwen/Qwen2.5-VL-72B-Instruct",
-            messages: [
-                {
-                    role: "user",
-                    content: [
-                        { type: "image_url", image_url: { url: base64Data } },
-                        { type: "text", text: prompt }
-                    ]
-                }
-            ],
-            temperature: 0.2
-        });
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await client.chat.completions.create({
+                model: "Qwen/Qwen3-VL-235B-A22B-Thinking",
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            { type: "image_url", image_url: { url: base64Data } },
+                            { type: "text", text: prompt }
+                        ]
+                    }
+                ],
+                temperature: 0.2
+            });
 
-        let result = response.choices[0].message.content;
-        
-        let parsed = null;
-        const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-            parsed = JSON.parse(jsonMatch[1]);
-        } else {
-            const rawMatch = result.match(/\{\s*"slide_title"[\s\S]*?\}/);
-            if (rawMatch) {
-                parsed = JSON.parse(rawMatch[0]);
+            let result = response.choices[0].message.content;
+            
+            let parsed = null;
+            const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
+            if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[1]);
             } else {
-                throw new Error("Unable to parse JSON");
+                const rawMatch = result.match(/\{\s*"slide_title"[\s\S]*?\}/);
+                if (rawMatch) {
+                    parsed = JSON.parse(rawMatch[0]);
+                } else {
+                    throw new Error("Unable to parse JSON");
+                }
             }
+            console.log(`   * Success! Found ${parsed.annotations ? parsed.annotations.length : 0} annotations, ${parsed.follow_up_slides ? parsed.follow_up_slides.length : 0} follow-up slides.`);
+            
+            return {
+                imageName, base64Data, imgW, imgH, imgX, imgY, ...parsed
+            };
+        } catch (e) {
+            console.error(`   ! Error processing ${imageName} (Attempt ${attempt}/${maxRetries}):`, e.message);
+            if (attempt === maxRetries) {
+                console.error(`   ! Max retries reached for ${imageName}. Exiting.`);
+                process.exit(1);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
-        console.log(`   * Success! Found ${parsed.annotations ? parsed.annotations.length : 0} annotations, ${parsed.follow_up_slides ? parsed.follow_up_slides.length : 0} follow-up slides.`);
-        
-        return {
-            imageName, base64Data, imgW, imgH, imgX, imgY, ...parsed
-        };
-    } catch (e) {
-        console.error(`   ! Error processing ${imageName}:`, e.message);
-        return null;
     }
 }
 
 async function run() {
     console.log("1. Reading Markdown and enumerating images...");
     const mdContent = fs.readFileSync(mdPath, 'utf-8');
-    const files = fs.readdirSync(imgDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg')).sort();
+    
+    let files = [];
+    try {
+        files = fs.readdirSync(imgDir).filter(f => f.endsWith('.png') || f.endsWith('.jpg')).sort();
+    } catch (e) {
+        console.log(`Warning: Image dir ${imgDir} not found or empty. Generating text-only slides.`);
+    }
     
     console.log(`Found ${files.length} images: ${files.join(', ')}`);
     
-    // Generate global slides if in creative mode
+    // Generate global slides if in creative mode or if there are no images
     let globalSlides = null;
-    if (MODE === 'creative') {
+    if (MODE === 'creative' || files.length === 0) {
+        console.log("Generating semantic structure slides...");
         globalSlides = await generateGlobalSlides(mdContent);
     }
     const results = [];
@@ -457,4 +471,7 @@ async function run() {
     console.log("========================================");
 }
 
-run().catch((e) => console.error("Global Error:", e));
+run().catch((e) => {
+    console.error("Global Error:", e);
+    process.exit(1);
+});

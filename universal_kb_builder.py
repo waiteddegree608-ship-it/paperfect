@@ -27,14 +27,8 @@ else:
     API_KEYS = [k.strip() for k in _raw_keys if k.strip()]
 
 if not API_KEYS:
-    API_KEYS = [
-        "sk-dpiishfexirqreksjbnpichslxhesbbzouqwbfvydsxtsxqy",
-        "sk-mgslywilzzkfkocixxcoqvwmujifddsufbeeuhxzypbnnhbb",
-        "sk-embxuawemmmuxusugtxycvjqdxyectauuvtlsceppnohtdfr",
-        "sk-pvxjmuijgajlgjugyzcleeayowvkgqlgtvbkiydvmxhojwoc",
-        "sk-aajjtxilddijbqbfuqhggtvvsgsloxdbfbecsooqjqjgcjhh",
-        "sk-wkqonmxvvdgjvrgbfeiprflpdbqlxggasogiukgdwfuyfgxq"
-    ]
+    print("[Warning] No API keys loaded from config.json")
+    API_KEYS = []
 
 BASE_URL = _CFG.get("parse_api_url", "https://api.siliconflow.cn/v1")
 MODEL_NAME = _CFG.get("parse_model", "Qwen/Qwen3-VL-235B-A22B-Thinking")

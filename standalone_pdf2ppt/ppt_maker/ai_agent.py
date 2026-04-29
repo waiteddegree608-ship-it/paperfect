@@ -9,8 +9,15 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-# The user's API Key
-api_key = "sk-cdzjqfotorgcynqgzzygcbwrylepjbijikgydpgauwxnpycp"
+# Load API Key from config.json
+api_key = ""
+config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'config.json')
+if os.path.exists(config_path):
+    with open(config_path, 'r', encoding='utf-8') as f:
+        cfg = json.load(f)
+        keys = cfg.get("parse_api_key", [])
+        if keys:
+            api_key = keys[0] if isinstance(keys, list) else keys
 
 client = OpenAI(
     api_key=api_key,

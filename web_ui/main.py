@@ -37,8 +37,12 @@ import pythoncom
 import win32com.client
 from pptx import Presentation
 import base64
+import concurrent.futures
 
 active_tasks = set()
+# 使用多线程池实现并行处理能力，最大并发数4，搭配多秘钥轮询防止封禁
+import random
+task_queue_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 def get_base_dir():
     # 获取此工程的外层根目录 (e:\workspace\ddl)
@@ -56,18 +60,11 @@ def load_config():
             return cfg
     return {
         "parse_api_url": "https://api.siliconflow.cn/v1",
-        "parse_api_key": [
-            "sk-dpiishfexirqreksjbnpichslxhesbbzouqwbfvydsxtsxqy",
-            "sk-mgslywilzzkfkocixxcoqvwmujifddsufbeeuhxzypbnnhbb",
-            "sk-embxuawemmmuxusugtxycvjqdxyectauuvtlsceppnohtdfr",
-            "sk-pvxjmuijgajlgjugyzcleeayowvkgqlgtvbkiydvmxhojwoc",
-            "sk-aajjtxilddijbqbfuqhggtvvsgsloxdbfbecsooqjqjgcjhh",
-            "sk-wkqonmxvvdgjvrgbfeiprflpdbqlxggasogiukgdwfuyfgxq"
-        ],
+        "parse_api_key": [],
         "parse_model": "Qwen/Qwen3-VL-235B-A22B-Thinking",
         "chat_api_url": "https://api.siliconflow.cn/v1",
-        "chat_api_key": "sk-glinbzmkuqfkveeqeiizatpkwseliggmflxybeqtmxrmcwhz",
-        "chat_model": "Qwen/Qwen2.5-7B-Instruct"
+        "chat_api_key": "",
+        "chat_model": "Qwen/Qwen3-VL-235B-A22B-Thinking"
     }
 
 def save_config(new_config):
@@ -114,7 +111,8 @@ def scan_items(item_type="book"):
                         else:
                             progress = "抽取中"
                 else:
-                    status = "ready" if os.path.exists(translated_pdf) else ("processing" if f"papers_{b_name}" in active_tasks else "interrupted")
+                    pptx_path = os.path.join(store_dir, b_name, f"{b_name}_Full_Presentation.pptx")
+                    status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{b_name}" in active_tasks else "interrupted")
                     
                 items.append({
                     "name": b_name,
@@ -158,8 +156,7 @@ async def delete_target(name: str, type: str):
     paths_to_delete = [
         os.path.join(store_dir, f"{name}.pdf"),
         os.path.join(store_dir, f"{name}_translated.pdf"),
-        os.path.join(store_dir, f"{name}_annotated.pdf"),
-        os.path.join(base_dir, f"{name}_Full_Presentation.pptx")
+        os.path.join(store_dir, f"{name}_annotated.pdf")
     ]
     
     import shutil
@@ -179,7 +176,7 @@ active_tasks = set()
 
 def run_builder_sync(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative"):
     task_id = f"{item_type}s_{book_name}"
-    active_tasks.add(task_id)
+    # active_tasks.add is now intentionally handled at submission site to ensure correct queued state
     try:
         import sys
         import shutil
@@ -197,7 +194,7 @@ def run_builder_sync(pdf_path: str, book_name: str, item_type: str, prompt_type:
             
             # Step 1: Translate PDF
             print(f"\n========== Step 1: Translate PDF ==========")
-            script_path = os.path.join(get_base_dir(), "paper_translator.py")
+            script_path = os.path.join(get_base_dir(), "tools", "paper_translator.py")
             out_translated = os.path.join(target_dir, f"{book_name}_translated.pdf")
             subprocess.run([sys.executable, script_path, pdf_path, out_translated], check=True)
             
@@ -208,15 +205,31 @@ def run_builder_sync(pdf_path: str, book_name: str, item_type: str, prompt_type:
             from llm_client import PaperReaderBot
             from prompts import get_stage1_prompt
             
+            # 自动切分论文配图，为后续PPT使用提供素材
+            pm = ProjectManager(base_dir=target_dir)
+            pm.extract_semantic_figures(pdf_path, work_dir)
+            
             cfg = load_config()
             
-            # 兼容老配置，如果没设置 paper_api 也就退回 parse_api
-            def_parse_key = cfg.get("parse_api_key", [""])[0] if isinstance(cfg.get("parse_api_key"), list) else cfg.get("parse_api_key")
-            api_key = cfg.get("paper_api_key", def_parse_key)
-            if not api_key: api_key = def_parse_key
+            # 动态密钥轮询逻辑以支持高并发吞吐
+            parse_api_key_val = cfg.get("parse_api_key", [""])
+            if isinstance(parse_api_key_val, str):
+                parse_api_key_val = [k.strip() for k in parse_api_key_val.split(",") if k.strip()]
+            
+            paper_api_key_val = cfg.get("paper_api_key", "")
+            valid_keys = []
+            if isinstance(paper_api_key_val, str) and paper_api_key_val.strip():
+                valid_keys = [k.strip() for k in paper_api_key_val.split(",") if k.strip()]
+            elif isinstance(paper_api_key_val, list) and paper_api_key_val:
+                valid_keys = [k for k in paper_api_key_val if k.strip()]
+                
+            if not valid_keys:
+                valid_keys = [k for k in parse_api_key_val if k]
+                
+            api_key = random.choice(valid_keys) if valid_keys else ""
             
             base_url = cfg.get("paper_api_url", "https://api.siliconflow.cn/v1")
-            model = cfg.get("paper_model", "Qwen/Qwen2.5-72B-Instruct") 
+            model = cfg.get("paper_model", "Qwen/Qwen3-VL-235B-A22B-Thinking") 
             
               
             bot = PaperReaderBot(api_key=api_key, base_url=base_url, model_name=model)
@@ -233,15 +246,25 @@ def run_builder_sync(pdf_path: str, book_name: str, item_type: str, prompt_type:
             # Step 3: PPTX Compilation
             print(f"\\n========== Step 3: Compiling PPTX ==========")
             ppt_script = os.path.join(get_base_dir(), "standalone_pdf2ppt", "ppt_maker", "generate_full_ppt.js")
-            out_ppt = os.path.join(get_base_dir(), f"{book_name}_Full_Presentation.pptx")
+            out_ppt = os.path.join(work_dir, f"{book_name}_Full_Presentation.pptx")
             figures_dir = os.path.join(work_dir, "figures")
             
-            subprocess.run(["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key], cwd=os.path.join(get_base_dir(), "standalone_pdf2ppt", "ppt_maker"), check=True)
+            import time
+            for attempt in range(3):
+                try:
+                    subprocess.run(["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key], cwd=os.path.join(get_base_dir(), "standalone_pdf2ppt", "ppt_maker"), check=True)
+                    break
+                except subprocess.CalledProcessError as e:
+                    if attempt < 2:
+                        print(f"PPT Compilation failed: {e}. Retrying ({attempt+2}/3)...")
+                        time.sleep(2)
+                    else:
+                        raise e
             
 
             # Step 4: AI PDF Annotation
             print(f"\n========== Step 4: Generate Annotated PDF ==========")
-            annotator_script = os.path.join(get_base_dir(), "pdf_annotator.py")
+            annotator_script = os.path.join(get_base_dir(), "tools", "pdf_annotator.py")
             subprocess.run([sys.executable, annotator_script, work_dir], check=True)
             
             ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
@@ -271,6 +294,11 @@ async def handle_upload(file, item_type, prompt_type="提示词汇总", ppt_mode
     os.makedirs(target_dir, exist_ok=True)
     
     filename = os.path.basename(file.filename) if file.filename else "unknown.pdf"
+    
+    # Strip spaces from filename to avoid Windows Path Error (e.g., "name  .pdf" -> "name.pdf")
+    name_part, ext_part = os.path.splitext(filename)
+    filename = name_part.strip() + ext_part.lower()
+
     if filename.endswith(".pdf.pdf"):
         filename = filename[:-4]
         
@@ -282,11 +310,11 @@ async def handle_upload(file, item_type, prompt_type="提示词汇总", ppt_mode
     book_name = os.path.splitext(filename)[0]
     task_id = f"{item_type}s_{book_name}"
     if task_id not in active_tasks:
-        import threading
+        active_tasks.add(task_id)
         if item_type == "paper":
-            threading.Thread(target=run_builder_sync, args=(pdf_path, book_name, item_type, prompt_type, ppt_mode), daemon=True).start()
+            task_queue_executor.submit(run_builder_sync, pdf_path, book_name, item_type, prompt_type, ppt_mode)
         else:
-            threading.Thread(target=run_builder_sync, args=(pdf_path, book_name, item_type), daemon=True).start()
+            task_queue_executor.submit(run_builder_sync, pdf_path, book_name, item_type)
         
     return {"status": "processing", "book_name": book_name}
 
@@ -297,9 +325,19 @@ async def resume_task(book_name: str):
     if os.path.exists(pdf_path):
         task_id = f"books_{book_name}"
         if task_id not in active_tasks:
-            import threading
-            threading.Thread(target=run_builder_sync, args=(pdf_path, book_name, "book"), daemon=True).start()
+            active_tasks.add(task_id)
+            task_queue_executor.submit(run_builder_sync, pdf_path, book_name, "book")
         return {"status": "processing"}
+        
+    papers_dir = os.path.join(get_base_dir(), "papers")
+    pdf_path_paper = os.path.join(papers_dir, f"{book_name}.pdf")
+    if os.path.exists(pdf_path_paper):
+        task_id = f"papers_{book_name}"
+        if task_id not in active_tasks:
+            active_tasks.add(task_id)
+            task_queue_executor.submit(run_builder_sync, pdf_path_paper, book_name, "paper", "提示词汇总", "creative")
+        return {"status": "processing"}
+        
     return {"status": "error", "message": "PDF not found"}
 
 @app.get("/api/status/{item_type}/{book_name}")
@@ -325,8 +363,8 @@ async def check_status(item_type: str, book_name: str):
         progress = f"{done_parts}/{total_parts}" if total_parts > 0 else "抽取中"
         return {"status": status, "progress": progress}
     else:
-        translated_pdf = os.path.join(target_dir, f"{book_name}_translated.pdf")
-        return {"status": "ready" if os.path.exists(translated_pdf) else "processing"}
+        pptx_path = os.path.join(target_dir, book_name, f"{book_name}_Full_Presentation.pptx")
+        return {"status": "ready" if os.path.exists(pptx_path) else "processing"}
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -376,8 +414,8 @@ async def get_pdf_annotated(book_name: str):
 # ================= PPT 编辑核心框架 =================
 @app.get("/ppt_editor/{book_name}")
 async def ppt_editor_page(request: Request, book_name: str):
-    # 重定向到 ppt-master Vue 项目
-    return RedirectResponse(f"http://127.0.0.1:8081/?book={book_name}")
+    # 重定向到 ppt-master Vue 项目 (Vite 运行在 8081 端口，由于处于 WSL 环境，使用 localhost 对 Windows 端口转发兼容性最好)
+    return RedirectResponse(f"http://localhost:8081/?book={book_name}")
 
 @app.get("/api/ppt_export_json/{book_name}")
 async def export_json_for_pptx_main(book_name: str):
@@ -387,7 +425,14 @@ async def export_json_for_pptx_main(book_name: str):
         import base64
         import os
         
-        pptx_path = os.path.join(get_base_dir(), f"{book_name}_Full_Presentation.pptx")
+        # Check both the specific paper imports and book imports
+        imports_dir = os.path.join(get_base_dir(), "imports", book_name)
+        papers_dir = os.path.join(get_base_dir(), "papers", book_name)
+        
+        pptx_path = os.path.join(papers_dir, f"{book_name}_Full_Presentation.pptx")
+        if not os.path.exists(pptx_path):
+            pptx_path = os.path.join(imports_dir, f"{book_name}_Full_Presentation.pptx")
+            
         if not os.path.exists(pptx_path):
             return {"error": "PPTX not found"}
             
@@ -408,7 +453,7 @@ async def export_json_for_pptx_main(book_name: str):
                     }
                 }
                 
-                if shape.has_text_frame:
+                if shape.has_text_frame and shape.text.strip():
                     el["type"] = "text"
                     el["content"] = shape.text
                     
@@ -429,11 +474,34 @@ async def export_json_for_pptx_main(book_name: str):
                     except:
                         pass
                         
+                    
+                    text_align = "left"
+                    try:
+                        if shape.text_frame.paragraphs:
+                            align = shape.text_frame.paragraphs[0].alignment
+                            if align == 2:
+                                text_align = "center"
+                            elif align == 3:
+                                text_align = "right"
+                    except:
+                        pass
+                    
+                    valign = "top"
+                    try:
+                        anchor = getattr(shape.text_frame, 'vertical_anchor', None)
+                        if anchor == 4:
+                            valign = "middle"
+                        elif anchor == 3:
+                            valign = "bottom"
+                    except:
+                        pass
+                    
                     el["style"].update({
                         "fontSize": font_size,
                         "color": font_color,
                         "fontWeight": font_weight,
-                        "textAlign": "left"
+                        "textAlign": text_align,
+                        "valign": valign
                     })
                     elements.append(el)
                     
@@ -459,6 +527,8 @@ async def export_json_for_pptx_main(book_name: str):
                     except:
                         pass
                     el["style"].update({
+                        "flipH": bool(shape.element.xpath('.//a:xfrm/@flipH') and shape.element.xpath('.//a:xfrm/@flipH')[0] == '1'),
+                        "flipV": bool(shape.element.xpath('.//a:xfrm/@flipV') and shape.element.xpath('.//a:xfrm/@flipV')[0] == '1'),
                         "stroke": stroke_color,
                         "strokeWidth": 2
                     })
@@ -468,13 +538,16 @@ async def export_json_for_pptx_main(book_name: str):
                     el["type"] = "shape"
                     shape_val = "rectangle"
                     try:
-                        # auto_shape_type can throw if it's a line/not properly typed
                         ast = getattr(shape, 'auto_shape_type', None)
-                        if ast in (33, 34, 35, 36): # Arrow types
+                        if ast in (33, 34, 35, 36) or ast == 9: # Arrow types or Line
                             shape_val = "arrow"
                     except:
-                        pass
-                        
+                        if hasattr(shape, 'element') and 'prst="line"' in shape.element.xml:
+                            shape_val = "line"
+                    
+                    if shape_val in ("line", "arrow"):
+                        el["style"]["flipH"] = bool(shape.element.xpath('.//a:xfrm/@flipH') and shape.element.xpath('.//a:xfrm/@flipH')[0] == '1')
+                        el["style"]["flipV"] = bool(shape.element.xpath('.//a:xfrm/@flipV') and shape.element.xpath('.//a:xfrm/@flipV')[0] == '1')
                     el["content"] = shape_val
                     fill_color = "transparent"
                     stroke_color = "#3b82f6"
@@ -510,7 +583,13 @@ async def export_json_for_ppt_master(book_name: str):
         import base64
         import os
         
-        pptx_path = os.path.join(get_base_dir(), f"{book_name}_Full_Presentation.pptx")
+        imports_dir = os.path.join(get_base_dir(), "imports", book_name)
+        papers_dir = os.path.join(get_base_dir(), "papers", book_name)
+        
+        pptx_path = os.path.join(papers_dir, f"{book_name}_Full_Presentation.pptx")
+        if not os.path.exists(pptx_path):
+            pptx_path = os.path.join(imports_dir, f"{book_name}_Full_Presentation.pptx")
+            
         if not os.path.exists(pptx_path):
             return {"error": "PPTX not found"}
             
@@ -752,7 +831,7 @@ async def chat_api(req: ChatRequest):
         
         # Step 3: 原生语言生成器 (Generation)
         response = chat_client.chat.completions.create(
-            model=cfg.get("chat_model", "Qwen/Qwen2.5-7B-Instruct"),
+            model=cfg.get("chat_model", "Qwen/Qwen3-VL-235B-A22B-Thinking"),
             messages=messages,
             max_tokens=2048,
             temperature=0.7
