@@ -3,6 +3,8 @@ imports/*
 !imports/.gitkeep
 papers/*
 !papers/.gitkeep
+data/*
+!data/.gitkeep
 
 # Config / Secrets
 config.json

@@ -55,7 +55,7 @@ async def chat_api(req: ChatRequest):
         chat_client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"])
         
         response = chat_client.chat.completions.create(
-            model=cfg.get("chat_model", "Qwen/Qwen3-VL-235B-A22B-Thinking"),
+            model=cfg.get("chat_model", "Qwen/Qwen2.5-72B-Instruct"),
             messages=messages,
             max_tokens=2048,
             temperature=0.7

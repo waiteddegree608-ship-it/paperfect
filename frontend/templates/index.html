@@ -399,6 +399,9 @@
         {% for book in books %}
             {% if book.status == 'processing' %}
             <div class="card processing" id="processing-{{ book.name }}-book">
+                <div class="card-select-layer" style="z-index: 30;">
+                    <input type="checkbox" class="card-checkbox" value="{{ book.name }}" data-type="book" onclick="updateDeleteBtnState(); event.stopPropagation();">
+                </div>
                 <div class="spinner"></div>
                 <div class="processing-text">正在解析</div>
                 <div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">{{ book.progress }}</div>
@@ -406,6 +409,9 @@
             </div>
             {% elif book.status == 'interrupted' %}
             <div class="card interrupted" id="interrupted-{{ book.name }}-book" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+                <div class="card-select-layer" style="z-index: 30;">
+                    <input type="checkbox" class="card-checkbox" value="{{ book.name }}" data-type="book" onclick="updateDeleteBtnState(); event.stopPropagation();">
+                </div>
                 <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
                     <div style="margin-bottom:15px; text-align:center;">
                         <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ book.name }}》</div>
@@ -434,12 +440,18 @@
         {% for paper in papers %}
             {% if paper.status == 'processing' %}
             <div class="card processing" id="processing-{{ paper.name }}-paper">
+                <div class="card-select-layer" style="z-index: 30;">
+                    <input type="checkbox" class="card-checkbox" value="{{ paper.name }}" data-type="paper" onclick="updateDeleteBtnState(); event.stopPropagation();">
+                </div>
                 <div class="spinner" style="border-top-color: #10b981;"></div>
                 <div class="processing-text">正在翻译与解析...</div>
                 <div class="processing-title">《{{ paper.name }}》</div>
             </div>
             {% elif paper.status == 'interrupted' %}
             <div class="card interrupted" id="interrupted-{{ paper.name }}-paper" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+                <div class="card-select-layer" style="z-index: 30;">
+                    <input type="checkbox" class="card-checkbox" value="{{ paper.name }}" data-type="paper" onclick="updateDeleteBtnState(); event.stopPropagation();">
+                </div>
                 <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
                     <div style="margin-bottom:15px; text-align:center;">
                         <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ paper.name }}》</div>
@@ -553,6 +565,20 @@
                 <input type="text" id="annotator_model" placeholder="Qwen/Qwen3-VL-235B-A22B-Thinking">
             </div>
             
+            <div class="form-section-title">🌍 PDF 翻译引擎 (翻译英文论文用)</div>
+            <div class="form-group">
+                <label>API URL</label>
+                <input type="text" id="translate_api_url" placeholder="https://api.siliconflow.cn/v1">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="translate_api_key" placeholder="sk-xxxx">
+            </div>
+            <div class="form-group">
+                <label>大模型名称</label>
+                <input type="text" id="translate_model" placeholder="Qwen/Qwen3.5-397B-A17B">
+            </div>
+            
             <button class="save-btn" onclick="saveSettings()">保存配置并全局生效</button>
         </div>
     </div>
@@ -636,6 +662,10 @@
                 document.getElementById('annotator_api_url').value = cfg.annotator_api_url || '';
                 document.getElementById('annotator_api_key').value = cfg.annotator_api_key || '';
                 document.getElementById('annotator_model').value = cfg.annotator_model || '';
+                
+                document.getElementById('translate_api_url').value = cfg.translate_api_url || '';
+                document.getElementById('translate_api_key').value = cfg.translate_api_key || '';
+                document.getElementById('translate_model').value = cfg.translate_model || '';
             } catch (e) {
                 console.error("加载配置失败", e);
             }
@@ -664,7 +694,10 @@
                     paper_model: document.getElementById('paper_model').value,
                     annotator_api_url: document.getElementById('annotator_api_url').value,
                     annotator_api_key: document.getElementById('annotator_api_key').value,
-                    annotator_model: document.getElementById('annotator_model').value
+                    annotator_model: document.getElementById('annotator_model').value,
+                    translate_api_url: document.getElementById('translate_api_url').value,
+                    translate_api_key: document.getElementById('translate_api_key').value,
+                    translate_model: document.getElementById('translate_model').value
                 };
                 await fetch('/api/config', {
                     method: 'POST',
@@ -699,7 +732,8 @@
                         <div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">获取进度...</div>
                         <div class="processing-title">《${bookName}》</div>
                     `;
-                    card.id = `processing-${bookName}-book`;
+                    const itemTypeStr = card.closest('#papers-grid') ? 'paper' : 'book';
+                    card.id = `processing-${bookName}-${itemTypeStr}`;
                     card.removeAttribute('onclick');
                 }
             } catch(e) {
@@ -981,9 +1015,17 @@
             if (!confirm(`严重警告：不可逆转！确定要物理删除选择的 ${checkedItems.length} 个资料及其所有分析生成文件吗？`)) return;
             
             for (let cb of checkedItems) {
-                let name = cb.value;
-                let type = cb.dataset.type;
-                await fetch(`/api/delete_target?name=${encodeURIComponent(name)}&type=${type}`, { method: 'DELETE' });
+                const name = cb.value;
+                const type = cb.dataset.type;
+                try {
+                    const res = await fetch(`/api/delete_target?name=${encodeURIComponent(name)}&type=${type}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (data.status === 'error') {
+                        alert(`删除 ${name} 失败：${data.message}`);
+                    }
+                } catch(e) {
+                    console.error("Delete failed:", e);
+                }
             }
             
             window.location.reload();

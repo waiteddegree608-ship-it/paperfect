@@ -27,6 +27,7 @@ def scan_items(item_type="book"):
                         status = "processing" if f"books_{b_name}" in active_tasks else "interrupted"
                         progress = "抽取中"
                 else:
+                    with open(r"E:\workspace\ddl\debug_log.txt", "a") as f: f.write(f"DEBUG scan_items: active_tasks id={id(active_tasks)}, b_name={b_name}, in_set={f'papers_{b_name}' in active_tasks}\n")
                     status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{b_name}" in active_tasks else "interrupted")
                     progress = "生成中"
                     
@@ -50,9 +51,21 @@ def get_item_by_name(name):
 
 def delete_target_item(name: str, type: str):
     target_dir = os.path.join(get_base_dir(), "data", "textbooks" if type == "book" else "papers", name)
+    
+    # Remove from active tasks if present
+    task_id = f"{type}s_{name}"
+    active_tasks.discard(task_id)
+    
     if os.path.exists(target_dir):
-        try: shutil.rmtree(target_dir, ignore_errors=True)
-        except: pass
+        try:
+            shutil.rmtree(target_dir, ignore_errors=False)
+        except Exception:
+            # Fallback to ignore errors to delete whatever is not locked
+            shutil.rmtree(target_dir, ignore_errors=True)
+            
+        # Check if the raw pdf or directory still exists
+        if os.path.exists(target_dir):
+            return {"status": "error", "message": "文件正被后台驻留进程占用，无法彻底物理删除。请关闭终端（run.bat）并重新打开后端，即可释放占用并彻底删除。"}
     return {"status": "success"}
 
 async def handle_upload_file(file, item_type):

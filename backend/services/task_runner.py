@@ -6,27 +6,78 @@ import random
 from backend.core.config import get_base_dir, load_config
 from backend.services.file_manager import active_tasks
 
-async def run_subprocess(name, cmd, cwd=None):
-    print(f"[{name}] Starting: {' '.join(cmd)}")
+def force_print(*args, **kwargs):
+    text = " ".join(map(str, args))
+    try:
+        print(text, **kwargs, file=sys.stdout, flush=True)
+    except UnicodeEncodeError:
+        print(text.encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding), **kwargs, file=sys.stdout, flush=True)
+
+async def _read_stream(stream, prefix="", book_name=None):
+    # Print the prefix first
+    if prefix:
+        force_print(prefix, end="")
+    
+    last_char_was_cr = False
+    
+    while True:
+        try:
+            chunk = await stream.read(1)
+        except Exception:
+            break
+            
+        if not chunk:
+            break
+            
+        try:
+            char = chunk.decode('utf-8', errors='ignore')
+            if char:
+                # If we encounter a carriage return (used by progress bars), we must print it 
+                # and then reprint the prefix so the next line has the prefix too.
+                if char == '\r':
+                    sys.stdout.write('\r')
+                    sys.stdout.write(prefix)
+                    sys.stdout.flush()
+                    last_char_was_cr = True
+                elif char == '\n':
+                    sys.stdout.write('\n')
+                    sys.stdout.write(prefix)
+                    sys.stdout.flush()
+                    last_char_was_cr = False
+                else:
+                    sys.stdout.write(char)
+                    sys.stdout.flush()
+                    last_char_was_cr = False
+        except Exception:
+            pass
+
+
+async def run_subprocess(name, cmd, cwd=None, book_name=None):
+    force_print(f"[{name}] Starting: {' '.join(cmd)}")
     process = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    stdout, stderr = await process.communicate()
+    
+    await asyncio.gather(
+        _read_stream(process.stdout, prefix=f"[{name}] ", book_name=book_name),
+        _read_stream(process.stderr, prefix=f"[{name} ERR] ", book_name=book_name)
+    )
+    
+    await process.wait()
     if process.returncode != 0:
-        print(f"[{name}] Error ({process.returncode}):\n{stderr.decode('utf-8', errors='ignore')}")
         raise RuntimeError(f"{name} failed with exit code {process.returncode}")
-    print(f"[{name}] Completed successfully.")
-    return stdout.decode('utf-8', errors='ignore')
+    force_print(f"[{name}] Completed successfully.")
+    return ""
 
 async def async_run_builder(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative"):
     task_id = f"{item_type}s_{book_name}"
     try:
         if item_type == "book":
-            script_path = os.path.join(get_base_dir(), "universal_kb_builder.py")
-            await run_subprocess("Book Builder", [sys.executable, script_path, pdf_path])
+            script_path = os.path.join(get_base_dir(), "backend", "services", "universal_kb_builder.py")
+            await run_subprocess("Book Builder", [sys.executable, "-u", script_path, pdf_path], book_name=book_name)
         else:
             base_dir = get_base_dir()
             target_dir = os.path.join(base_dir, "data", "papers", book_name)
@@ -47,27 +98,28 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
 
             # Step 1: Translate and Parse in parallel
             async def run_translate():
-                script_path = os.path.join(base_dir, "tools", "paper_translator.py")
-                await run_subprocess("Translate", [sys.executable, script_path, pdf_path, translated_pdf])
+                script_path = os.path.join(get_base_dir(), "backend", "services", "paper_translator.py")
+                try:
+                    await run_subprocess("Translate", [sys.executable, "-u", script_path, pdf_path, translated_pdf], book_name=book_name)
+                except Exception as e:
+                    force_print(f"Translate failed, skipping translation: {e}")
 
             async def run_parse():
-                # We need to run the python code for parsing.
-                # Since llm_client and project_manager are quite tied, we will wrap it in a function here
-                # but to avoid blocking the event loop, we run it in an executor, or call a wrapper script.
-                # For simplicity, we create a temporary wrapper or run it using asyncio.to_thread
                 def parse_sync():
-                    import sys
-                    sys.path.insert(0, os.path.join(base_dir, "standalone_pdf2ppt"))
-                    from project_manager import ProjectManager
-                    from llm_client import PaperReaderBot
-                    from prompts import get_stage1_prompt
+                    from backend.services.project_manager import ProjectManager
+                    from backend.services.llm_client import PaperReaderBot
+                    from backend.services.prompts import get_stage1_prompt
                     
                     pm = ProjectManager(base_dir=target_dir)
-                    # Extract to global images folder
                     images_dir = os.path.join(target_dir, "images")
                     os.makedirs(images_dir, exist_ok=True)
-                    # For compatibility, we use work_dir for extraction then move
+                    
                     pm.extract_semantic_figures(pdf_path, work_dir)
+                    # Move figures to target_dir/images
+                    figures_in_work = os.path.join(work_dir, "images")
+                    if os.path.exists(figures_in_work):
+                        for f in os.listdir(figures_in_work):
+                            shutil.move(os.path.join(figures_in_work, f), os.path.join(images_dir, f))
                     
                     cfg = load_config()
                     parse_api_key_val = cfg.get("parse_api_key", [""])
@@ -82,28 +134,24 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     
                     with open(kb_file, "w", encoding="utf-8") as f:
                         f.write(md_report)
-                    shutil.copy(kb_file, parsed_md)
                     sys.path.pop(0)
 
-                print("\n========== Step 1: Extract Figures & Gen Deep Parsing MD ==========")
+                force_print("\n========== Step 1: Extract Figures & Gen Deep Parsing MD ==========")
                 await asyncio.to_thread(parse_sync)
-                print("[Parse] Completed successfully.")
-
-            print("\n========== Phase 1: Translate & Parse Parallel ==========")
-            await asyncio.gather(run_translate(), run_parse())
+                force_print("[Parse] Completed successfully.")
 
             # Step 2: PPT and Annotate in parallel
             async def run_ppt():
-                print(f"\n========== Step 3: Compiling PPTX ==========")
-                ppt_script = os.path.join(base_dir, "standalone_pdf2ppt", "ppt_maker", "generate_full_ppt.js")
-                # Need to pass figures_dir, but project_manager puts them in work_dir/figures
-                figures_dir = os.path.join(work_dir, "figures")
+                force_print(f"\n========== Step 3: Compiling PPTX ==========")
+                ppt_script = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker", "generate_full_ppt.js")
+                figures_dir = os.path.join(target_dir, "images")
                 cfg = load_config()
                 parse_api_key_val = cfg.get("parse_api_key", [""])
                 api_key = random.choice(parse_api_key_val) if parse_api_key_val else ""
+                ppt_model = cfg.get("paper_model") or cfg.get("chat_model") or "Qwen/Qwen2.5-72B-Instruct"
                 
-                cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key]
-                cwd = os.path.join(base_dir, "standalone_pdf2ppt", "ppt_maker")
+                cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model]
+                cwd = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker")
                 
                 for attempt in range(3):
                     try:
@@ -111,34 +159,61 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                         break
                     except Exception as e:
                         if attempt < 2:
-                            print(f"PPT Compilation failed: {e}. Retrying ({attempt+2}/3)...")
+                            force_print(f"PPT Compilation failed: {e}. Retrying ({attempt+2}/3)...")
                             await asyncio.sleep(2)
                         else:
-                            raise e
+                            force_print(f"PPT Compilation permanently failed: {e}")
 
             async def run_annotate():
-                print(f"\n========== Step 4: Generate Annotated PDF ==========")
-                annotator_script = os.path.join(base_dir, "tools", "pdf_annotator.py")
-                # pdf_annotator.py expects work_dir
-                await run_subprocess("Annotator", [sys.executable, annotator_script, work_dir])
-                
-                ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
-                if os.path.exists(ann_in_work):
-                    shutil.move(ann_in_work, annotated_pdf)
+                force_print(f"\n========== Step 4: Generate Annotated PDF ==========")
+                annotator_script = os.path.join(base_dir, "backend", "services", "pdf_annotator.py")
+                # Copy md to work_dir so pdf_annotator can find it alongside raw pdf
+                temp_md = os.path.join(work_dir, f"{book_name}_KnowledgeBase.md")
+                shutil.copy(kb_file, temp_md)
+                try:
+                    await run_subprocess("Annotator", [sys.executable, "-u", annotator_script, work_dir], book_name=book_name)
+                    ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
+                    if os.path.exists(ann_in_work):
+                        shutil.move(ann_in_work, annotated_pdf)
+                except Exception as e:
+                    import traceback
+                    force_print(f"Annotator failed: {repr(e)}")
+                    traceback.print_exc()
 
-            print("\n========== Phase 2: PPT & Annotate Parallel ==========")
-            await asyncio.gather(run_ppt(), run_annotate())
+            async def run_parse_and_downstream():
+                try:
+                    await run_parse()
+                except Exception as e:
+                    force_print(f"Parse failed, aborting downstream tasks: {e}")
+                    return
+                force_print("\n========== Phase 2: PPT & Annotate Parallel ==========")
+                await asyncio.gather(run_ppt(), run_annotate(), return_exceptions=True)
+
+            force_print("\n========== Pipeline Started (Optimized) ==========")
+            
+            translate_task = asyncio.create_task(run_translate())
+            
+            # Run parse -> ppt & annotate
+            await run_parse_and_downstream()
+            
+            # Wait for translation if it hasn't finished yet, so active_tasks isn't cleared too early
+            await translate_task
             
             # Clean up work_dir
             try:
-                shutil.rmtree(work_dir, ignore_errors=True)
+                # Do not delete raw pdf! work_dir is target_dir/raw. We only delete temp files inside it.
+                temp_md = os.path.join(work_dir, f"{book_name}_KnowledgeBase.md")
+                if os.path.exists(temp_md): os.remove(temp_md)
+                figures_in_work = os.path.join(work_dir, "figures")
+                if os.path.exists(figures_in_work): shutil.rmtree(figures_in_work, ignore_errors=True)
             except:
                 pass
             
-    except Exception as e:
+    except BaseException as e:
         import traceback
+        err_str = traceback.format_exc()
         traceback.print_exc()
-        print(f"Error running processing: {e}")
+        force_print(f"Error running processing: {e}")
     finally:
         active_tasks.discard(task_id)
 

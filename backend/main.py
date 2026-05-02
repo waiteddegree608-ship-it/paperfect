@@ -1,4 +1,10 @@
 import os
+import sys
+
+# Ensure the root directory is in sys.path so that 'from backend...' works
+# even if the script is executed directly via `python backend/main.py`
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
@@ -11,6 +17,7 @@ from backend.services.file_manager import scan_items, get_item_by_name
 import fitz
 import io
 from fastapi.responses import StreamingResponse
+from fastapi import HTTPException
 
 app = FastAPI()
 
@@ -43,38 +50,43 @@ async def index(request: Request):
 async def chat_page(request: Request, book_name: str):
     book = get_item_by_name(book_name)
     if not book:
-        return "Book not found", 404
+        raise HTTPException(status_code=404, detail="Book not found")
     return templates.TemplateResponse("chat.html", {"request": request, "book_name": book_name, "is_paper": book["type"] == "paper"})
 
 @app.get("/cover/{book_name}")
 async def get_cover(book_name: str):
     book = get_item_by_name(book_name)
-    if not book: return "404", 404
+    if not book: raise HTTPException(status_code=404, detail="Book not found")
     
-    doc = fitz.open(book["pdf_path"])
-    page = doc.load_page(0)
-    pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
-    img_data = pix.tobytes("png")
-    doc.close()
+    try:
+        doc = fitz.open(book["pdf_path"])
+    except Exception:
+        raise HTTPException(status_code=404, detail="PDF not found for cover")
+    try:
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+        img_data = pix.tobytes("png")
+    finally:
+        doc.close()
     
     return StreamingResponse(io.BytesIO(img_data), media_type="image/png")
 
 @app.get("/pdf/{book_name}")
 async def get_pdf(book_name: str):
     item = get_item_by_name(book_name)
-    if not item: return "404", 404
+    if not item or not os.path.exists(item.get("pdf_path", "")): raise HTTPException(status_code=404, detail="PDF not found")
     return FileResponse(item["pdf_path"], media_type="application/pdf")
 
 @app.get("/pdf_translated/{book_name}")
 async def get_pdf_translated(book_name: str):
     item = get_item_by_name(book_name)
-    if not item or not os.path.exists(item.get("translated_pdf_path", "")) : return "404", 404
+    if not item or not os.path.exists(item.get("translated_pdf_path", "")) : raise HTTPException(status_code=404, detail="Translated PDF not found")
     return FileResponse(item["translated_pdf_path"], media_type="application/pdf")
 
 @app.get("/pdf_annotated/{book_name}")
 async def get_pdf_annotated(book_name: str):
     item = get_item_by_name(book_name)
-    if not item or not os.path.exists(item.get("annotated_pdf_path", "")) : return "404", 404
+    if not item or not os.path.exists(item.get("annotated_pdf_path", "")) : raise HTTPException(status_code=404, detail="Annotated PDF not found")
     return FileResponse(item["annotated_pdf_path"], media_type="application/pdf")
 
 @app.get("/ppt_editor/{book_name}")
@@ -89,7 +101,7 @@ if __name__ == "__main__":
     
     def open_browser():
         time.sleep(1.5)
-        webbrowser.open("http://127.0.0.1:8899/")
+        webbrowser.open("http://127.0.0.1:8900/")
         
     threading.Thread(target=open_browser, daemon=True).start()
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8899, reload=True)
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=8900, reload=False)

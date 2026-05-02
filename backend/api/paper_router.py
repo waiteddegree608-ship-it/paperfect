@@ -1,22 +1,28 @@
 import os
-from fastapi import APIRouter, UploadFile, File, Form, Request
+from fastapi import APIRouter, UploadFile, File, Form, Request, BackgroundTasks
 from backend.services.file_manager import handle_upload_file, get_item_by_name, delete_target_item, scan_items
-from backend.services.task_runner import submit_task, active_tasks
+from backend.services.task_runner import active_tasks, async_run_builder
 from backend.core.config import get_base_dir
 from pydantic import BaseModel
 
 router = APIRouter()
 
 @router.post("/api/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     book_name, pdf_path = await handle_upload_file(file, "book")
-    submit_task(pdf_path, book_name, "book")
+    task_id = f"books_{book_name}"
+    if task_id not in active_tasks:
+        active_tasks.add(task_id)
+        background_tasks.add_task(async_run_builder, pdf_path, book_name, "book")
     return {"status": "processing", "book_name": book_name}
 
 @router.post("/api/upload_paper")
-async def upload_paper(file: UploadFile = File(...), prompt_type: str = Form("提示词汇总"), ppt_mode: str = Form("creative")):
+async def upload_paper(background_tasks: BackgroundTasks, file: UploadFile = File(...), prompt_type: str = Form("提示词汇总"), ppt_mode: str = Form("creative")):
     book_name, pdf_path = await handle_upload_file(file, "paper")
-    submit_task(pdf_path, book_name, "paper", prompt_type, ppt_mode)
+    task_id = f"papers_{book_name}"
+    if task_id not in active_tasks:
+        active_tasks.add(task_id)
+        background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode)
     return {"status": "processing", "book_name": book_name}
 
 @router.delete("/api/delete_target")
@@ -24,17 +30,23 @@ async def delete_target(name: str, type: str):
     return delete_target_item(name, type)
 
 @router.post("/api/resume/{book_name}")
-async def resume_task(book_name: str):
+async def resume_task(book_name: str, background_tasks: BackgroundTasks):
     target_dir = os.path.join(get_base_dir(), "data", "textbooks", book_name, "raw")
     pdf_path = os.path.join(target_dir, f"{book_name}.pdf")
     if os.path.exists(pdf_path):
-        submit_task(pdf_path, book_name, "book")
+        task_id = f"books_{book_name}"
+        if task_id not in active_tasks:
+            active_tasks.add(task_id)
+            background_tasks.add_task(async_run_builder, pdf_path, book_name, "book")
         return {"status": "processing"}
         
     target_dir = os.path.join(get_base_dir(), "data", "papers", book_name, "raw")
     pdf_path_paper = os.path.join(target_dir, f"{book_name}.pdf")
     if os.path.exists(pdf_path_paper):
-        submit_task(pdf_path_paper, book_name, "paper", "提示词汇总", "creative")
+        task_id = f"papers_{book_name}"
+        if task_id not in active_tasks:
+            active_tasks.add(task_id)
+            background_tasks.add_task(async_run_builder, pdf_path_paper, book_name, "paper", "提示词汇总", "creative")
         return {"status": "processing"}
         
     return {"status": "error", "message": "PDF not found"}
@@ -53,7 +65,11 @@ async def check_status(item_type: str, book_name: str):
         return {"status": status, "progress": progress}
     else:
         pptx_path = os.path.join(target_dir, "pptx", f"{book_name}_Full_Presentation.pptx")
-        return {"status": "ready" if os.path.exists(pptx_path) else "processing"}
+        if os.path.exists(pptx_path):
+            return {"status": "ready"}
+        
+        status = "processing" if f"papers_{book_name}" in active_tasks else "interrupted"
+        return {"status": status, "progress": "生成中"}
 
 # Prompts API
 class PromptSaveRequest(BaseModel):
@@ -61,7 +77,7 @@ class PromptSaveRequest(BaseModel):
 
 @router.get("/api/prompts")
 async def list_prompts():
-    prompt_dir = os.path.join(get_base_dir(), "standalone_pdf2ppt", "prompts")
+    prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     if not os.path.exists(prompt_dir):
         os.makedirs(prompt_dir)
     files = [f for f in os.listdir(prompt_dir) if f.endswith('.md')]
@@ -70,7 +86,7 @@ async def list_prompts():
 
 @router.get("/api/prompts/{prompt_name}")
 async def get_prompt(prompt_name: str):
-    prompt_dir = os.path.join(get_base_dir(), "standalone_pdf2ppt", "prompts")
+    prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     path = os.path.join(prompt_dir, f"{prompt_name}.md")
     if not os.path.exists(path):
         return {"status": "error", "message": "Prompt not found"}
@@ -80,7 +96,7 @@ async def get_prompt(prompt_name: str):
 @router.post("/api/prompts/{prompt_name}")
 async def save_prompt(prompt_name: str, req: PromptSaveRequest):
     prompt_name = os.path.basename(prompt_name)
-    prompt_dir = os.path.join(get_base_dir(), "standalone_pdf2ppt", "prompts")
+    prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     if not os.path.exists(prompt_dir):
         os.makedirs(prompt_dir)
     path = os.path.join(prompt_dir, f"{prompt_name}.md")
@@ -91,7 +107,7 @@ async def save_prompt(prompt_name: str, req: PromptSaveRequest):
 @router.delete("/api/prompts/{prompt_name}")
 async def delete_prompt(prompt_name: str):
     prompt_name = os.path.basename(prompt_name)
-    prompt_dir = os.path.join(get_base_dir(), "standalone_pdf2ppt", "prompts")
+    prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     path = os.path.join(prompt_dir, f"{prompt_name}.md")
     if os.path.exists(path):
         os.remove(path)
