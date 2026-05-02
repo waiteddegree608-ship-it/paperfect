@@ -24,8 +24,8 @@ client = OpenAI(
     base_url="https://api.siliconflow.cn/v1"
 )
 
-target_image = r"E:\workspace\aigal\参考\c2a4075843dba86800a235fd4e690be7.png"
-reference_image = r"E:\workspace\aigal\参考\3c3bc45774ead99dd46d7ca5d73e1df9.png"
+target_image = r"./demo_assets/target.png"
+reference_image = r"./demo_assets/reference.png"
 
 # Read image sizes to help the model with coordinates
 with Image.open(target_image) as img:

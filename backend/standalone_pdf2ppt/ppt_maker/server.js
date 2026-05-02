@@ -37,7 +37,7 @@ app.post('/api/analyze', async (req, res) => {
     
     const base64Data = image;
 
-    const mdPath = "E:\\workspace\\aigal\\参考\\输出结果_FashionTex.md";
+    const mdPath = path.join(__dirname, "demo_assets", "example.md");
     let mdContent = "";
     try {
       mdContent = fs.readFileSync(mdPath, 'utf-8');

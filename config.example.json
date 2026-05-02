@@ -1,0 +1,5 @@
+{
+  "parse_api_key": ["sk-your_api_key_here"],
+  "parse_api_url": "https://api.siliconflow.cn/v1",
+  "parse_model": "Qwen/Qwen3-VL-235B-A22B-Thinking"
+}

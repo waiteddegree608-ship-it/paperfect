@@ -22,9 +22,9 @@ const client = new OpenAI({
   baseURL: "https://api.siliconflow.cn/v1"
 });
 
-const mdPath = "E:\\workspace\\aigal\\参考\\输出结果_FashionTex.md";
-const imgPath = "E:\\workspace\\aigal\\参考\\c2a4075843dba86800a235fd4e690be7.png";
-const outputPath = "E:\\workspace\\aigal\\参考\\FashionTex_Annotation.pptx";
+const mdPath = "./demo_assets/example.md";
+const imgPath = "./demo_assets/example.png";
+const outputPath = "./demo_assets/output.pptx";
 
 async function run() {
     console.log("1. Reading Markdown & Image files...");
