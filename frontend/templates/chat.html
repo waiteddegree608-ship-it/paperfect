@@ -363,11 +363,17 @@
             返回主页
         </button>
         
+        <label class="layout-btn active" id="btn-sync-scroll" style="display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="sync-scroll-checkbox" checked style="margin: 0; cursor: pointer;">
+            <span id="sync-scroll-text">滚动同步: 开</span>
+        </label>
+
         <button class="layout-btn active" id="btn-layout-orig" onclick="togglePane('original')">原文</button>
         <button class="layout-btn" id="btn-layout-anno" onclick="togglePane('annotated')">ai标注</button>
         <button class="layout-btn" id="btn-layout-trans" onclick="togglePane('translated')">翻译</button>
         <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')">PPT</button>
         <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')">AI</button>
+        <button class="layout-btn" id="btn-layout-realtime" onclick="togglePane('realtime')">实时翻译</button>
     </div>
     {% else %}
     <div class="layout-controls" style="justify-content: flex-start;">
@@ -383,22 +389,51 @@
         <!-- 原文PDF -->
         <div class="pane" id="pane-original">
             <div class="pane-header">PDF 原文版</div>
-            <iframe src="/pdf/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Original PDF Viewer"></iframe>
+            <iframe id="iframe-original" src="/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}" title="Original PDF Viewer"></iframe>
         </div>
         
         <!-- 翻译PDF (仅论文模式下存在且默认可能显示) -->
         {% if is_paper %}
         <div class="pane" id="pane-annotated" style="display: none;">
             <div class="pane-header">AI 批注版 PDF</div>
-            <iframe src="/pdf_annotated/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Annotated PDF Viewer" onerror="this.src='/pdf/{{ book_name }}'; alert('尚未生成AI批注');"></iframe>
+            <iframe id="iframe-annotated" src="/static/pdfjs/web/viewer.html?file=/pdf_annotated/{{ book_name }}" title="Annotated PDF Viewer" onerror="this.src='/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}'; alert('尚未生成AI批注');"></iframe>
         </div>
         <div class="pane" id="pane-translated" style="display: none;">
             <div class="pane-header">PDF 翻译版</div>
-            <iframe src="/pdf_translated/{{ book_name }}#toolbar=1&navpanes=0&scrollbar=1" title="Translated PDF Viewer"></iframe>
+            <iframe id="iframe-translated" src="/static/pdfjs/web/viewer.html?file=/pdf_translated/{{ book_name }}" title="Translated PDF Viewer"></iframe>
         </div>
         <div class="pane" id="pane-ppt" style="display: none;">
             <div class="pane-header">PPT 独立流式编辑器</div>
             <iframe src="/ppt_editor/{{ book_name }}" title="Web PPT Editor"></iframe>
+        </div>
+        
+        <!-- 实时翻译子面板 -->
+        <div class="pane" id="pane-realtime-trans" style="display: none; border: 1px solid #3b82f6; overflow: hidden; background: var(--card-bg);">
+            <!-- Header supports dragging when detached (in fallback mode) -->
+            <div class="pane-header" style="background: rgba(59, 130, 246, 0.15); border-bottom-color: #3b82f6;" id="realtime-header">
+                <div style="font-weight: 600; color: #60a5fa; pointer-events: none;">实时翻译</div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="icon-btn" id="realtime-btn-detach" title="脱离容器并置顶" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">↗</button>
+                    <button class="icon-btn" id="realtime-btn-max" title="最大化" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px; display: none;">🗖</button>
+                    <button class="icon-btn" id="realtime-btn-close" title="关闭" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">✖</button>
+                </div>
+            </div>
+            <div id="realtime-content-wrapper" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 15px; gap: 15px;">
+                <div style="flex: 1; display: flex; flex-direction: column; background: var(--input-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
+                    <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between;">
+                        <span>原文 (支持划选捕获与手动修改)</span>
+                        <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">手动翻译</button>
+                    </div>
+                    <textarea id="realtime-source-text" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
+                    <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between;">
+                        <span>翻译结果</span>
+                        <span id="realtime-status" style="color: var(--primary-accent);">等待中...</span>
+                    </div>
+                    <div id="realtime-result-text" style="flex: 1; padding: 12px; font-size: 14px; color: var(--text-color); overflow-y: auto; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap;"></div>
+                </div>
+            </div>
         </div>
         {% endif %}
         
@@ -438,6 +473,8 @@
         </div>
     </div>
 
+    <script src="/static/js/pdf_sync.js"></script>
+    <script src="/static/js/realtime_trans.js"></script>
     <script>
         // Check theme setup from homepage preference
         let activeTheme = localStorage.getItem('theme') || 'github-dark';
@@ -457,7 +494,8 @@
                 'annotated': {pane: 'pane-annotated', btn: 'btn-layout-anno'},
                 'translated': {pane: 'pane-translated', btn: 'btn-layout-trans'},
                 'ppt': {pane: 'pane-ppt', btn: 'btn-layout-ppt'},
-                'chat': {pane: 'pane-chat', btn: 'btn-layout-chat'}
+                'chat': {pane: 'pane-chat', btn: 'btn-layout-chat'},
+                'realtime': {pane: 'pane-realtime-trans', btn: 'btn-layout-realtime'}
             };
             const map = mappings[paneType];
             if (map) {
@@ -694,6 +732,35 @@
         window.addEventListener("DOMContentLoaded", () => {
             initChat();
             updateResizers();
+
+            // Initialize PDF Scroll Synchronization
+            const syncManager = new PdfScrollSyncManager();
+            const iframeOriginal = document.getElementById('iframe-original');
+            const iframeAnnotated = document.getElementById('iframe-annotated');
+            const iframeTranslated = document.getElementById('iframe-translated');
+
+            if (iframeOriginal) syncManager.registerIframe('original', iframeOriginal);
+            if (iframeAnnotated) syncManager.registerIframe('annotated', iframeAnnotated);
+            if (iframeTranslated) syncManager.registerIframe('translated', iframeTranslated);
+
+            syncManager.initListeners();
+
+            // Handle Sync Toggle
+            const syncCheckbox = document.getElementById('sync-scroll-checkbox');
+            const syncText = document.getElementById('sync-scroll-text');
+            const btnSyncScroll = document.getElementById('btn-sync-scroll');
+            if (syncCheckbox) {
+                syncCheckbox.addEventListener('change', (e) => {
+                    const isEnabled = e.target.checked;
+                    syncText.textContent = isEnabled ? '滚动同步: 开' : '滚动同步: 关';
+                    if (isEnabled) {
+                        btnSyncScroll.classList.add('active');
+                    } else {
+                        btnSyncScroll.classList.remove('active');
+                    }
+                    syncManager.setSyncState(isEnabled);
+                });
+            }
         });
     </script>
 </body>
