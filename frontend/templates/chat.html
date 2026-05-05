@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <title>Paperfect - {{ book_name }}</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Google Fonts removed to prevent 10s loading delay in China -->
     <style>
         /* GitHub Dark (Default Dark) Fallback */
         :root {
@@ -181,6 +179,11 @@
             word-break: break-word;
         }
         
+        .bubble p { margin: 0 0 10px 0; }
+        .bubble p:last-child { margin: 0; }
+        .bubble pre { background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; overflow-x: auto; margin: 10px 0; }
+        .bubble code { background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
+        
         /* 用户的气泡：炫彩渐变亮色 */
         .user-bubble { 
             background: var(--user-bubble-bg); 
@@ -352,6 +355,15 @@
             40% { transform: scale(1.5); }
         }
     </style>
+    <!-- Add marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // Configure marked to handle line breaks like GitHub
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+    </script>
 </head>
 <body>
     <!-- 全局主控栏（顶部导航排版条） -->
@@ -389,18 +401,18 @@
         <!-- 原文PDF -->
         <div class="pane" id="pane-original">
             <div class="pane-header">PDF 原文版</div>
-            <iframe id="iframe-original" src="/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}" title="Original PDF Viewer"></iframe>
+            <iframe id="iframe-original" src="/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none" title="Original PDF Viewer"></iframe>
         </div>
         
         <!-- 翻译PDF (仅论文模式下存在且默认可能显示) -->
         {% if is_paper %}
         <div class="pane" id="pane-annotated" style="display: none;">
             <div class="pane-header">AI 批注版 PDF</div>
-            <iframe id="iframe-annotated" src="/static/pdfjs/web/viewer.html?file=/pdf_annotated/{{ book_name }}" title="Annotated PDF Viewer" onerror="this.src='/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}'; alert('尚未生成AI批注');"></iframe>
+            <iframe id="iframe-annotated" src="/static/pdfjs/web/viewer.html?file=/pdf_annotated/{{ book_name }}#pagemode=none" title="Annotated PDF Viewer" onerror="this.src='/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none'; alert('尚未生成AI批注');"></iframe>
         </div>
         <div class="pane" id="pane-translated" style="display: none;">
             <div class="pane-header">PDF 翻译版</div>
-            <iframe id="iframe-translated" src="/static/pdfjs/web/viewer.html?file=/pdf_translated/{{ book_name }}" title="Translated PDF Viewer"></iframe>
+            <iframe id="iframe-translated" src="/static/pdfjs/web/viewer.html?file=/pdf_translated/{{ book_name }}#pagemode=none" title="Translated PDF Viewer"></iframe>
         </div>
         <div class="pane" id="pane-ppt" style="display: none;">
             <div class="pane-header">PPT 独立流式编辑器</div>
@@ -420,11 +432,14 @@
             </div>
             <div id="realtime-content-wrapper" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 15px; gap: 15px;">
                 <div style="flex: 1; display: flex; flex-direction: column; background: var(--input-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
-                    <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between;">
+                    <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between; align-items: center;">
                         <span>原文 (支持划选捕获与手动修改)</span>
-                        <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">手动翻译</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="realtime-btn-pip-return" style="display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">↙ 嵌入网页</button>
+                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">手动翻译</button>
+                        </div>
                     </div>
-                    <textarea id="realtime-source-text" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
+                    <textarea id="realtime-source-text" autocomplete="off" spellcheck="false" data-form-type="other" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
                 </div>
                 <div style="flex: 1; display: flex; flex-direction: column; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
                     <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between;">
@@ -474,7 +489,7 @@
     </div>
 
     <script src="/static/js/pdf_sync.js"></script>
-    <script src="/static/js/realtime_trans.js"></script>
+    <script src="/static/js/realtime_trans.js?v=3"></script>
     <script>
         // Check theme setup from homepage preference
         let activeTheme = localStorage.getItem('theme') || 'github-dark';
@@ -700,7 +715,7 @@
                 });
                 const data = await res.json();
                 
-                aiRow.querySelector('.ai-bubble').innerHTML = data.reply.replace(/\\n/g, "<br>");
+                aiRow.querySelector('.ai-bubble').innerHTML = marked.parse(data.reply);
                 chatBox.scrollTop = chatBox.scrollHeight;
                 
                 saveCurrentMessage("assistant", data.reply);
@@ -716,9 +731,11 @@
             row.className = role === "user" ? "bubble-container user-row" : "bubble-container ai-row";
             
             if (role === "user") {
-                row.innerHTML = `<div class="bubble user-bubble">${text.replace(/\\n/g, "<br>")}</div><div class="user-avatar"></div>`;
+                // For user messages, simple text escaping (prevent XSS) and formatting
+                const safeText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+                row.innerHTML = `<div class="bubble user-bubble">${safeText}</div><div class="user-avatar"></div>`;
             } else {
-                row.innerHTML = `<div class="ai-avatar">AI</div><div class="bubble ai-bubble">${text.replace(/\\n/g, "<br>")}</div>`;
+                row.innerHTML = `<div class="ai-avatar">AI</div><div class="bubble ai-bubble">${marked.parse(text)}</div>`;
             }
             chatBox.appendChild(row);
             chatBox.scrollTop = chatBox.scrollHeight;

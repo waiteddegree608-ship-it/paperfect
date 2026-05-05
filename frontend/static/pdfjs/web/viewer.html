@@ -32,7 +32,20 @@ See https://github.com/adobe-type-tools/cmap-resources
 <script src="../build/pdf.js"></script>
 
     <link rel="stylesheet" href="viewer.css">
-
+    <style>
+      /* Paperfect Custom Fix: Ensure popup annotations are not clipped */
+      .annotationLayer {
+          overflow: visible !important;
+      }
+      .annotationLayer .popupAnnotation {
+          width: auto !important;
+          max-width: 400px;
+          height: auto !important;
+          word-break: break-all;
+          white-space: normal !important;
+          z-index: 9999 !important;
+      }
+    </style>
   <script src="viewer.js"></script>
   </head>
 

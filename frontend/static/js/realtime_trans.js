@@ -25,6 +25,7 @@ class RealtimeTranslationManager {
         this.resultText = document.getElementById('realtime-result-text');
         this.statusText = document.getElementById('realtime-status');
         this.btnTranslate = document.getElementById('realtime-btn-translate');
+        this.btnPipReturn = document.getElementById('realtime-btn-pip-return');
 
         this.isDetached = false;
         this.pipWindow = null;
@@ -71,6 +72,14 @@ class RealtimeTranslationManager {
             if (text) this.triggerTranslation(text);
         });
 
+        // 绑定自定义的画中画返回按钮
+        if (this.btnPipReturn) {
+            this.btnPipReturn.addEventListener('click', () => {
+                this.isReturningFromPip = true; // 标记这是用户主动点的返回
+                if (this.pipWindow) this.pipWindow.close();
+            });
+        }
+
         // Fallback 模式拖拽逻辑
         this.header.addEventListener('mousedown', (e) => {
             // 如果没脱离，或者是真PiP模式，不走网页拖拽
@@ -108,6 +117,7 @@ class RealtimeTranslationManager {
         if (this.isDetached) {
             // 从脱离状态还原
             if (this.pipWindow) {
+                this.isReturningFromPip = true; // 外部调用复原，认为是正常的返回
                 this.pipWindow.close(); // 会触发 pagehide 事件处理还原
             } else {
                 this.restoreFallbackPane();
@@ -129,9 +139,11 @@ class RealtimeTranslationManager {
     }
 
     async openPiPWindow() {
+        this.isReturningFromPip = false; // 重置标记
         this.pipWindow = await window.documentPictureInPicture.requestWindow({
             width: 400,
-            height: 600
+            height: 600,
+            disallowReturnToOpener: true // 禁用系统原生的返回按钮，让系统的 X 真正变成关闭
         });
 
         // 复制主页面的基础样式，主要是字体和颜色变量
@@ -154,10 +166,13 @@ class RealtimeTranslationManager {
         // 基础样式覆盖
         const baseStyle = document.createElement('style');
         baseStyle.textContent = `
-            body { margin: 0; padding: 0; background: #16161D; height: 100vh; overflow: hidden; }
+            body { margin: 0; padding: 0; background: var(--card-bg, #16161D); height: 100vh; overflow: hidden; }
             #realtime-content-wrapper { height: 100%; box-sizing: border-box; }
         `;
         this.pipWindow.document.head.appendChild(baseStyle);
+
+        // 显示自定义返回按钮
+        if (this.btnPipReturn) this.btnPipReturn.style.display = 'block';
 
         // 将 content-wrapper 移动到 PiP 中
         this.pipWindow.document.body.appendChild(this.contentWrapper);
@@ -168,12 +183,27 @@ class RealtimeTranslationManager {
 
         // 监听 PiP 关闭
         this.pipWindow.addEventListener("pagehide", (event) => {
-            this.pane.appendChild(this.contentWrapper); // 把内容拿回来
+            // 把内容拿回来
+            if (this.btnPipReturn) this.btnPipReturn.style.display = 'none';
+            this.pane.appendChild(this.contentWrapper); 
             
             const btn = document.getElementById('btn-layout-realtime');
-            if (btn && btn.classList.contains('active')) {
-                this.pane.style.display = 'flex';
+            
+            if (this.isReturningFromPip) {
+                // 如果是点击"↙ 嵌入网页"按钮，则恢复面板显示
+                if (btn && !btn.classList.contains('active')) {
+                    btn.click(); // 确保布局按钮也是激活态
+                } else {
+                    this.pane.style.display = 'flex';
+                }
+            } else {
+                // 否则说明是点击了系统的 "X"，直接关闭整个面板
+                if (btn && btn.classList.contains('active')) {
+                    btn.click(); // 取消激活态并隐藏
+                }
+                this.pane.style.display = 'none';
             }
+            
             this.isDetached = false;
             this.pipWindow = null;
         });

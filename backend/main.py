@@ -16,6 +16,7 @@ from backend.api import paper_router, ppt_router, chat_router, config_router
 from backend.services.file_manager import scan_items, get_item_by_name
 import fitz
 import io
+import functools
 from fastapi.responses import StreamingResponse
 from fastapi import HTTPException
 
@@ -54,22 +55,24 @@ async def chat_page(request: Request, book_name: str):
     return templates.TemplateResponse("chat.html", {"request": request, "book_name": book_name, "is_paper": book["type"] == "paper"})
 
 @app.get("/cover/{book_name}")
-async def get_cover(book_name: str):
+def get_cover(book_name: str):
     book = get_item_by_name(book_name)
     if not book: raise HTTPException(status_code=404, detail="Book not found")
     
-    try:
-        doc = fitz.open(book["pdf_path"])
-    except Exception:
-        raise HTTPException(status_code=404, detail="PDF not found for cover")
-    try:
-        page = doc.load_page(0)
-        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
-        img_data = pix.tobytes("png")
-    finally:
-        doc.close()
+    pdf_path = book["pdf_path"]
+    cover_path = pdf_path.replace(".pdf", "_cover.png")
     
-    return StreamingResponse(io.BytesIO(img_data), media_type="image/png")
+    if not os.path.exists(cover_path):
+        try:
+            doc = fitz.open(pdf_path)
+            page = doc.load_page(0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+            pix.save(cover_path)
+            doc.close()
+        except Exception:
+            raise HTTPException(status_code=404, detail="PDF not found for cover")
+    
+    return FileResponse(cover_path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 @app.get("/pdf/{book_name}")
 async def get_pdf(book_name: str):

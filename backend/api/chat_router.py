@@ -40,10 +40,10 @@ async def chat_api(req: ChatRequest):
     try:
         context = simple_rag_search(book["kb_path"], req.message)
         
-        sys_prompt = f"""你是【{req.book_name}】专属私教助教。
-请严格基于底下提取的【知识库内部切片信息】来回答用户，如果里面没提到，请不要生搬硬造。
+        sys_prompt = f"""请严格基于底下提取的【知识库内部切片信息】来直接回答用户的问题。
+不要进行任何自我介绍，不要添加任何不相关的寒暄或废话，直接输出答案。如果知识库中没有提到，请直接说明没有找到相关信息，不要生搬硬造。
 
-【提取到的教材切片信息】：
+【知识库内部切片信息】：
 {context}
 """
         messages = [{"role": "system", "content": sys_prompt}]
@@ -74,17 +74,13 @@ async def realtime_translate_api(req: TranslateRequest):
     if not book: return {"translation": "Book not found"}
     
     try:
-        context = simple_rag_search(book["kb_path"], req.selected_text)
+        sys_prompt = """你是一个专业的学术翻译专家。
+请将用户发给你的这段英文学术文献翻译成专业、流畅的中文。
+注意：只需输出最精准的中文翻译结果，绝对不要输出任何内部标记，也不要包含任何解释性废话。直接给出最终的中文翻译即可。"""
         
-        sys_prompt = f"""你是一个专业的学术翻译专家。请严格基于底下提取的【论文上下文信息】来翻译用户选中的句子，确保专业术语的准确性和语句的流畅。
-        如果上下文中有帮助理解该句子的内容，请参考它。
-
-【论文上下文信息】：
-{context[:2000]}  # 限制上下文长度防止噪声过大
-"""
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": f"请翻译以下句子：\n{req.selected_text}\n\n注意：只需输出最精准的中文翻译结果，绝对不要输出 <begin_of_box>、<end_of_box> 等任何 XML/HTML/内部标记，也不要包含解释性废话或重复原文。直接给出中文翻译即可。"}
+            {"role": "user", "content": f"请翻译以下句子：\n{req.selected_text}"}
         ]
         
         cfg = load_config()

@@ -27,7 +27,6 @@ def scan_items(item_type="book"):
                         status = "processing" if f"books_{b_name}" in active_tasks else "interrupted"
                         progress = "抽取中"
                 else:
-                    with open(r"E:\workspace\ddl\debug_log.txt", "a") as f: f.write(f"DEBUG scan_items: active_tasks id={id(active_tasks)}, b_name={b_name}, in_set={f'papers_{b_name}' in active_tasks}\n")
                     status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{b_name}" in active_tasks else "interrupted")
                     progress = "生成中"
                     
@@ -44,9 +43,37 @@ def scan_items(item_type="book"):
     return items
 
 def get_item_by_name(name):
-    for b in scan_items("book") + scan_items("paper"):
-        if b["name"] == name:
-             return b
+    base_dir = get_base_dir()
+    for item_type in ["book", "paper"]:
+        target_dir = os.path.join(base_dir, "data", "textbooks" if item_type == "book" else "papers", name)
+        if os.path.isdir(target_dir):
+            pdf_file = os.path.join(target_dir, "raw", f"{name}.pdf")
+            translated_pdf = os.path.join(target_dir, "translated", f"{name}_translated.pdf")
+            annotated_pdf = os.path.join(target_dir, "marked", f"{name}_annotated.pdf")
+            kb_file = os.path.join(target_dir, "parsed", f"{name}_KnowledgeBase.md")
+            pptx_path = os.path.join(target_dir, "pptx", f"{name}_Full_Presentation.pptx")
+            
+            if item_type == "book":
+                if os.path.exists(kb_file):
+                    status = "ready"
+                    progress = "100%"
+                else:
+                    status = "processing" if f"books_{name}" in active_tasks else "interrupted"
+                    progress = "抽取中"
+            else:
+                status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{name}" in active_tasks else "interrupted")
+                progress = "生成中"
+                
+            return {
+                "name": name,
+                "pdf_path": pdf_file if os.path.exists(pdf_file) else "",
+                "translated_pdf_path": translated_pdf if os.path.exists(translated_pdf) else "",
+                "annotated_pdf_path": annotated_pdf if os.path.exists(annotated_pdf) else "",
+                "kb_path": kb_file if os.path.exists(kb_file) else "",
+                "status": status,
+                "progress": progress,
+                "type": item_type
+            }
     return None
 
 def delete_target_item(name: str, type: str):
