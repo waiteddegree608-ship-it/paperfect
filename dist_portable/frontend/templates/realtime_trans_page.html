@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>实时翻译 - {{ book_name }}</title>
+    <!-- Google Fonts removed to prevent 10s loading delay in China -->
+    <style>
+        body {
+            margin: 0;
+            padding: 15px;
+            height: 100vh;
+            box-sizing: border-box;
+            background: #1A1B25; /* Antigravity Theme Background */
+            color: #878AA2;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #21252B;
+            border-radius: 12px;
+            border: 1px solid #2C313A;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .panel-header {
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #ABB2BF;
+            background: #282C34;
+            border-bottom: 1px solid #2C313A;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status {
+            color: #6E88BD;
+            font-weight: 600;
+        }
+
+        textarea.source-text {
+            flex: 1;
+            border: none;
+            background: transparent;
+            color: #E5E7EB;
+            padding: 12px;
+            resize: none;
+            font-size: 15px;
+            outline: none;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        .result-text {
+            flex: 1;
+            padding: 12px;
+            font-size: 15px;
+            color: #E5E7EB;
+            overflow-y: auto;
+            line-height: 1.6;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .translate-btn {
+            background: #6E88BD;
+            border: none;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: 0.2s;
+        }
+        .translate-btn:hover {
+            background: #88D6CC;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="panel">
+        <div class="panel-header">
+            <span>原文 (可编辑)</span>
+            <button class="translate-btn" onclick="manualTranslate()">手动翻译</button>
+        </div>
+        <textarea id="source-text" class="source-text" placeholder="在主页面的文献中划选文字，将自动显示在此处..."></textarea>
+    </div>
+    
+    <div class="panel">
+        <div class="panel-header">
+            <span>翻译结果</span>
+            <span id="status" class="status">等待中...</span>
+        </div>
+        <div id="result-text" class="result-text"></div>
+    </div>
+</div>
+
+<script>
+    const bookName = "{{ book_name }}";
+    const sourceTextEl = document.getElementById('source-text');
+    const resultTextEl = document.getElementById('result-text');
+    const statusEl = document.getElementById('status');
+    let translateTimeout = null;
+
+    // 监听 localStorage 的变化以获取跨窗口消息
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'realtime_selected_text_' + bookName) {
+            if (!e.newValue) return;
+            try {
+                const data = JSON.parse(e.newValue);
+                if (data.text && data.text !== sourceTextEl.value) {
+                    sourceTextEl.value = data.text;
+                    triggerTranslation(data.text);
+                }
+            } catch (err) {}
+        }
+    });
+
+    // 允许用户手动修改文本框后重新触发翻译
+    sourceTextEl.addEventListener('input', () => {
+        if (translateTimeout) clearTimeout(translateTimeout);
+        // 用户输入时，延迟1秒自动翻译
+        translateTimeout = setTimeout(() => {
+            const text = sourceTextEl.value.trim();
+            if (text) triggerTranslation(text);
+        }, 1000);
+    });
+
+    function manualTranslate() {
+        const text = sourceTextEl.value.trim();
+        if (text) triggerTranslation(text);
+    }
+
+    async function triggerTranslation(text) {
+        statusEl.textContent = "请求中...";
+        statusEl.style.color = "#88D6CC";
+        resultTextEl.innerHTML = "<span style='color: #878AA2;'>正在召唤翻译大模型...</span>";
+
+        try {
+            const res = await fetch("/api/realtime_translate", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    book_name: bookName,
+                    selected_text: text
+                })
+            });
+            
+            if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+            
+            const data = await res.json();
+            statusEl.textContent = "✓ 完成";
+            statusEl.style.color = "#10b981"; // Green
+            resultTextEl.textContent = data.translation;
+            
+        } catch (e) {
+            statusEl.textContent = "× 错误";
+            statusEl.style.color = "#DF5953"; // Red
+            resultTextEl.innerHTML = `<span style='color: #DF5953;'>翻译失败: ${e.message}</span>`;
+        }
+    }
+    
+    // 初始化时检查是否已经有划选内容
+    const initialData = localStorage.getItem('realtime_selected_text_' + bookName);
+    if (initialData) {
+        try {
+            const parsed = JSON.parse(initialData);
+            if (parsed.text) {
+                sourceTextEl.value = parsed.text;
+                triggerTranslation(parsed.text);
+            }
+        } catch(e) {}
+    }
+</script>
+
+</body>
+</html>
