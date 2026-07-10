@@ -27,11 +27,11 @@
 
         body[data-theme="dark-plus"] {
             --bg-color: #1E1E1E; --text-color: #CCCCCC; --pane-bg: #181818; --pane-border: #181818;
-            --pane-header-bg: #1B4D54; --header-text: #CCCCCC; --primary-accent: #004F8B; --primary-hover: #004F8B;
-            --secondary-accent: #004F8B; --secondary-hover: #004F8B; --danger-color: #004F8B; --upload-accent: #004F8B;
+            --pane-header-bg: #1B4D54; --header-text: #CCCCCC; --primary-accent: #3794ff; --primary-hover: #5ea3ff;
+            --secondary-accent: #3794ff; --secondary-hover: #5ea3ff; --danger-color: #e74c3c; --upload-accent: #3794ff;
             --btn-bg: #181818; --btn-border: #181818; --chat-area-bg: #1E1E1E; --user-bubble-bg: #181818;
             --user-bubble-text: #CCCCCC; --ai-bubble-bg: #1E1E1E; --ai-bubble-border: #181818; --input-bg: #181818;
-            --bot-status-color: #004F8B; --secondary-text: #CCCCCC;
+            --bot-status-color: #3794ff; --secondary-text: #CCCCCC;
         }
 
         body[data-theme="cyan-light"] {
@@ -92,6 +92,7 @@
 
         .pane {
             flex: 1;
+            min-width: 250px;
             background: var(--pane-bg); 
             border-radius: 20px;
             overflow: hidden;
@@ -355,6 +356,8 @@
             40% { transform: scale(1.5); }
         }
     </style>
+    <!-- Add i18n support -->
+    <script src="/static/js/i18n.js?v=2026071001"></script>
     <!-- Add marked.js for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
@@ -372,27 +375,27 @@
         <!-- 返回主界面按钮 -->
         <button class="layout-btn" style="position: absolute; left: 20px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            返回主页
+            <span data-i18n="chat.back">返回主页</span>
         </button>
         
         <label class="layout-btn active" id="btn-sync-scroll" style="display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;">
             <input type="checkbox" id="sync-scroll-checkbox" checked style="margin: 0; cursor: pointer;">
-            <span id="sync-scroll-text">滚动同步: 开</span>
+            <span id="sync-scroll-text" data-i18n="chat.sync_scroll_on">滚动同步: 开</span>
         </label>
 
-        <button class="layout-btn active" id="btn-layout-orig" onclick="togglePane('original')">原文</button>
-        <button class="layout-btn" id="btn-layout-anno" onclick="togglePane('annotated')">ai标注</button>
-        <button class="layout-btn" id="btn-layout-trans" onclick="togglePane('translated')">翻译</button>
-        <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')">PPT</button>
-        <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')">AI</button>
-        <button class="layout-btn" id="btn-layout-realtime" onclick="togglePane('realtime')">实时翻译</button>
+        <button class="layout-btn active" id="btn-layout-orig" onclick="togglePane('original')" data-i18n="chat.original">原文</button>
+        <button class="layout-btn" id="btn-layout-anno" onclick="togglePane('annotated')" data-i18n="chat.annotated">AI标注</button>
+        <button class="layout-btn" id="btn-layout-trans" onclick="togglePane('translated')" data-i18n="chat.translated">翻译</button>
+        <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')" data-i18n="chat.ppt">PPT</button>
+        <button class="layout-btn" id="btn-layout-realtime" onclick="togglePane('realtime')" data-i18n="chat.realtime">实时翻译</button>
+        <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')" data-i18n="chat.ai">AI</button>
     </div>
     {% else %}
     <div class="layout-controls" style="justify-content: flex-start;">
         <!-- 返回主界面按钮 -->
         <button class="layout-btn" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            返回主页
+            <span data-i18n="chat.back">返回主页</span>
         </button>
     </div>
     {% endif %}
@@ -400,22 +403,22 @@
     <div class="panes-container">
         <!-- 原文PDF -->
         <div class="pane" id="pane-original">
-            <div class="pane-header">PDF 原文版</div>
-            <iframe id="iframe-original" src="/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none" title="Original PDF Viewer"></iframe>
+            <div class="pane-header" data-i18n="chat.pane_original">PDF 原文版</div>
+            <iframe id="iframe-original" data-src="/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none" title="Original PDF Viewer"></iframe>
         </div>
         
         <!-- 翻译PDF (仅论文模式下存在且默认可能显示) -->
         {% if is_paper %}
         <div class="pane" id="pane-annotated" style="display: none;">
-            <div class="pane-header">AI 批注版 PDF</div>
-            <iframe id="iframe-annotated" src="/static/pdfjs/web/viewer.html?file=/pdf_annotated/{{ book_name }}#pagemode=none" title="Annotated PDF Viewer" onerror="this.src='/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none'; alert('尚未生成AI批注');"></iframe>
+            <div class="pane-header" data-i18n="chat.pane_annotated">AI 批注版 PDF</div>
+            <iframe id="iframe-annotated" data-src="/static/pdfjs/web/viewer.html?file=/pdf_annotated/{{ book_name }}#pagemode=none" title="Annotated PDF Viewer" onerror="this.src='/static/pdfjs/web/viewer.html?file=/pdf/{{ book_name }}#pagemode=none'; alert(t('chat.no_annotation'));"></iframe>
         </div>
         <div class="pane" id="pane-translated" style="display: none;">
-            <div class="pane-header">PDF 翻译版</div>
-            <iframe id="iframe-translated" src="/static/pdfjs/web/viewer.html?file=/pdf_translated/{{ book_name }}#pagemode=none" title="Translated PDF Viewer"></iframe>
+            <div class="pane-header" data-i18n="chat.pane_translated">PDF 翻译版</div>
+            <iframe id="iframe-translated" data-src="/static/pdfjs/web/viewer.html?file=/pdf_translated/{{ book_name }}#pagemode=none" title="Translated PDF Viewer"></iframe>
         </div>
         <div class="pane" id="pane-ppt" style="display: none;">
-            <div class="pane-header">PPT 独立流式编辑器</div>
+            <div class="pane-header" data-i18n="chat.pane_ppt">PPT 独立流式编辑器</div>
             <iframe src="/ppt_editor/{{ book_name }}" title="Web PPT Editor"></iframe>
         </div>
         
@@ -423,28 +426,28 @@
         <div class="pane" id="pane-realtime-trans" style="display: none; border: 1px solid #3b82f6; overflow: hidden; background: var(--card-bg);">
             <!-- Header supports dragging when detached (in fallback mode) -->
             <div class="pane-header" style="background: rgba(59, 130, 246, 0.15); border-bottom-color: #3b82f6;" id="realtime-header">
-                <div style="font-weight: 600; color: #60a5fa; pointer-events: none;">实时翻译</div>
+                <div style="font-weight: 600; color: #60a5fa; pointer-events: none;" data-i18n="chat.pane_realtime">实时翻译</div>
                 <div style="display: flex; gap: 8px;">
-                    <button class="icon-btn" id="realtime-btn-detach" title="脱离容器并置顶" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">↗</button>
-                    <button class="icon-btn" id="realtime-btn-max" title="最大化" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px; display: none;">🗖</button>
-                    <button class="icon-btn" id="realtime-btn-close" title="关闭" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">✖</button>
+                    <button class="icon-btn" id="realtime-btn-detach" data-i18n-title="chat.detach" title="脱离容器并置顶" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">↗</button>
+                    <button class="icon-btn" id="realtime-btn-max" data-i18n-title="chat.maximize" title="最大化" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px; display: none;">🗖</button>
+                    <button class="icon-btn" id="realtime-btn-close" data-i18n-title="chat.close" title="关闭" style="width: 24px; height: 24px; padding: 0; background: transparent; border: none; cursor: pointer; color: var(--text-color); font-size: 16px;">✖</button>
                 </div>
             </div>
             <div id="realtime-content-wrapper" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 15px; gap: 15px;">
                 <div style="flex: 1; display: flex; flex-direction: column; background: var(--input-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
                     <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between; align-items: center;">
-                        <span>原文 (支持划选捕获与手动修改)</span>
+                        <span data-i18n="chat.source_label">原文 (支持划选捕获与手动修改)</span>
                         <div style="display: flex; gap: 8px;">
-                            <button id="realtime-btn-pip-return" style="display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">↙ 嵌入网页</button>
-                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">手动翻译</button>
+                            <button id="realtime-btn-pip-return" style="display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.embed_back">↙ 嵌入网页</button>
+                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.translate_btn">手动翻译</button>
                         </div>
                     </div>
-                    <textarea id="realtime-source-text" autocomplete="off" spellcheck="false" data-form-type="other" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
+                    <textarea id="realtime-source-text" autocomplete="off" spellcheck="false" data-form-type="other" data-i18n="chat.source_placeholder" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
                 </div>
                 <div style="flex: 1; display: flex; flex-direction: column; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--pane-border); overflow: hidden;">
                     <div style="padding: 8px 12px; font-size: 12px; color: var(--text-muted); background: var(--header-bg); border-bottom: 1px solid var(--pane-border); display: flex; justify-content: space-between;">
-                        <span>翻译结果</span>
-                        <span id="realtime-status" style="color: var(--primary-accent);">等待中...</span>
+                        <span data-i18n="chat.result_label">翻译结果</span>
+                        <span id="realtime-status" style="color: var(--primary-accent);" data-i18n="chat.status_waiting">等待中...</span>
                     </div>
                     <div id="realtime-result-text" style="flex: 1; padding: 12px; font-size: 14px; color: var(--text-color); overflow-y: auto; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap;"></div>
                 </div>
@@ -458,8 +461,8 @@
                 <div class="chat-header">
             <div class="chat-title"></div>
             <div class="chat-actions">
-                <button class="action-btn" onclick="openHistory()">历史对话</button>
-                <button class="action-btn new-chat-btn" onclick="startNewSession()">开启新对话</button>
+                <button class="action-btn" onclick="openHistory()" data-i18n="chat.history">历史对话</button>
+                <button class="action-btn new-chat-btn" onclick="startNewSession()" data-i18n="chat.new_session">开启新对话</button>
             </div>
         </div>
 
@@ -468,10 +471,10 @@
         </div>
         
             <div class="input-area">
-                <textarea id="msg" placeholder="请输入您关于这档文档的任何疑问，或者指定页码进行问答..."></textarea>
+                <textarea id="msg" data-i18n="chat.placeholder" placeholder="请输入您关于这档文档的任何疑问，或者指定页码进行问答..."></textarea>
                 <div class="bottom-actions">
                     <div class="bot-status" style="display: none;"></div>
-                    <button class="send-btn" onclick="sendMsg()">发送 (Enter)</button>
+                    <button class="send-btn" onclick="sendMsg()" data-i18n="chat.send">发送 (Enter)</button>
                 </div>
             </div>
         </div>
@@ -491,6 +494,48 @@
     <script src="/static/js/pdf_sync.js"></script>
     <script src="/static/js/realtime_trans.js?v=3"></script>
     <script>
+        // PPT Page Mapping & Slide Change Sync Listener
+        window.pptPageMapping = null;
+        window.addEventListener('message', (event) => {
+            if (event.data) {
+                if (event.data.type === 'PPT_MAPPING_LOADED') {
+                    window.pptPageMapping = event.data.page_mapping;
+                    console.log("[Parent] Loaded PPT page mapping:", window.pptPageMapping);
+                } else if (event.data.type === 'SLIDE_CHANGED_BY_USER') {
+                    const slideIndex = event.data.slideIndex;
+                    console.log("[Parent] Slide changed by user:", slideIndex);
+                    if (window.pptPageMapping && window.pptPageMapping[slideIndex] !== undefined) {
+                        const targetPage = window.pptPageMapping[slideIndex];
+                        console.log("[Parent] Navigating PDF to page:", targetPage);
+                        
+                        if (window.pdfSyncManager && window.pdfSyncManager.iframes) {
+                            // Temporarily disable scroll sync during page navigation to prevent race condition
+                            const originalSyncState = window.pdfSyncManager.isSyncEnabled;
+                            window.pdfSyncManager.isSyncEnabled = false;
+
+                            for (const [id, iframe] of Object.entries(window.pdfSyncManager.iframes)) {
+                                if (iframe.offsetParent !== null) { // Visible pane
+                                    try {
+                                        const innerWin = iframe.contentWindow;
+                                        if (innerWin && innerWin.PDFViewerApplication) {
+                                            innerWin.PDFViewerApplication.page = targetPage;
+                                        }
+                                    } catch (e) {
+                                        console.warn("[Parent] Failed to set page for iframe:", id, e.message);
+                                    }
+                                }
+                            }
+
+                            // Re-enable sync after pages settle
+                            setTimeout(() => {
+                                window.pdfSyncManager.isSyncEnabled = originalSyncState;
+                            }, 500);
+                        }
+                    }
+                }
+            }
+        });
+
         // Check theme setup from homepage preference
         let activeTheme = localStorage.getItem('theme') || 'github-dark';
         if (activeTheme === 'light') activeTheme = 'github-light';
@@ -531,7 +576,7 @@
             const visiblePanes = Array.from(container.querySelectorAll('.pane')).filter(p => p.style.display !== 'none');
             
             visiblePanes.forEach(p => {
-                if(!p.style.flex) p.style.flex = "1 1 0%";
+                p.style.flex = "1 1 0%";
             });
 
             for(let i=0; i<visiblePanes.length - 1; i++) {
@@ -745,20 +790,61 @@
             }
         }
 
+        function applyPageTranslations() {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (key === 'chat.sync_scroll_on' || key === 'chat.sync_scroll_off') {
+                    return;
+                }
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    el.placeholder = t(key);
+                } else {
+                    el.innerText = t(key);
+                }
+            });
+
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                const key = el.getAttribute('data-i18n-title');
+                el.title = t(key);
+            });
+
+            const syncCheckbox = document.getElementById('sync-scroll-checkbox');
+            const syncText = document.getElementById('sync-scroll-text');
+            if (syncCheckbox && syncText) {
+                const isEnabled = syncCheckbox.checked;
+                syncText.textContent = isEnabled ? t('chat.sync_scroll_on') : t('chat.sync_scroll_off');
+            }
+        }
+
         // On Load Init
         window.addEventListener("DOMContentLoaded", () => {
             initChat();
             updateResizers();
+            applyPageTranslations();
 
             // Initialize PDF Scroll Synchronization
             const syncManager = new PdfScrollSyncManager();
+            window.pdfSyncManager = syncManager;
+            const timestamp = Date.now();
             const iframeOriginal = document.getElementById('iframe-original');
             const iframeAnnotated = document.getElementById('iframe-annotated');
             const iframeTranslated = document.getElementById('iframe-translated');
 
-            if (iframeOriginal) syncManager.registerIframe('original', iframeOriginal);
-            if (iframeAnnotated) syncManager.registerIframe('annotated', iframeAnnotated);
-            if (iframeTranslated) syncManager.registerIframe('translated', iframeTranslated);
+            if (iframeOriginal) {
+                const baseSrc = iframeOriginal.getAttribute('data-src');
+                iframeOriginal.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
+                syncManager.registerIframe('original', iframeOriginal);
+            }
+            if (iframeAnnotated) {
+                const baseSrc = iframeAnnotated.getAttribute('data-src');
+                iframeAnnotated.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
+                syncManager.registerIframe('annotated', iframeAnnotated);
+            }
+            if (iframeTranslated) {
+                const baseSrc = iframeTranslated.getAttribute('data-src');
+                iframeTranslated.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
+                syncManager.registerIframe('translated', iframeTranslated);
+            }
 
             syncManager.initListeners();
 
@@ -769,7 +855,7 @@
             if (syncCheckbox) {
                 syncCheckbox.addEventListener('change', (e) => {
                     const isEnabled = e.target.checked;
-                    syncText.textContent = isEnabled ? '滚动同步: 开' : '滚动同步: 关';
+                    syncText.textContent = isEnabled ? t('chat.sync_scroll_on') : t('chat.sync_scroll_off');
                     if (isEnabled) {
                         btnSyncScroll.classList.add('active');
                     } else {

@@ -156,6 +156,12 @@ const App: React.FC = () => {
             setSlideImage(parsedSlides[0].slideImage);
             setElements(parsedSlides[0].elements);
           }
+          if (json.page_mapping) {
+            window.parent.postMessage({
+              type: 'PPT_MAPPING_LOADED',
+              page_mapping: json.page_mapping
+            }, '*');
+          }
         }
       } catch (err) {
         console.error("Failed to load PPT", err);
@@ -189,6 +195,19 @@ const App: React.FC = () => {
        });
     }, 0);
   };
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'SELECT_SLIDE_BY_INDEX') {
+        const index = parseInt(event.data.index, 10);
+        if (!isNaN(index) && index >= 0 && index < allSlides.length && index !== currentSlideIndex) {
+          switchSlide(index);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [allSlides, currentSlideIndex]);
 
 
   useEffect(() => {
@@ -476,7 +495,8 @@ const App: React.FC = () => {
 
     setIsAnalyzing(true);
     try {
-      const response = await fetch('http://localhost:3005/api/analyze', {
+      const backendPort = window.location.port === '8081' ? '8900' : window.location.port;
+      const response = await fetch(`http://${window.location.hostname}:${backendPort}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -486,7 +506,8 @@ const App: React.FC = () => {
           imgX: slideImage.x,
           imgY: slideImage.y,
           imgW: slideImage.width,
-          imgH: slideImage.height
+          imgH: slideImage.height,
+          book_name: new URLSearchParams(window.location.search).get('book') || ""
         })
       });
       
@@ -517,44 +538,45 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 font-sans p-4 gap-4 overflow-hidden">
-      {/* Header Container */}
-      <div className="glass-panel rounded-xl shadow-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 z-10 w-full shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
-            <MonitorPlay size={24} />
+      {/* Compact Toolbar */}
+      <div className="flex flex-row flex-nowrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 z-10 w-full shrink-0 overflow-x-auto whitespace-nowrap scrollbar-thin select-none">
+        
+        {/* Navigation */}
+        {allSlides.length > 0 && (
+          <div className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1 shrink-0">
+            <button onClick={() => switchSlide(currentSlideIndex - 1)} disabled={currentSlideIndex === 0} className="px-1.5 py-0.5 text-slate-400 hover:text-white disabled:opacity-30 text-xs font-bold">&lt;</button>
+            <span className="text-xs font-semibold text-slate-200 min-w-[70px] text-center">Slide {currentSlideIndex + 1} / {allSlides.length}</span>
+            <button onClick={() => switchSlide(currentSlideIndex + 1)} disabled={currentSlideIndex === allSlides.length - 1} className="px-1.5 py-0.5 text-slate-400 hover:text-white disabled:opacity-30 text-xs font-bold">&gt;</button>
           </div>
-          <div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
-              AI Presentation Canvas
-            </h1>
-            <p className="text-xs text-slate-400">16:9 Standard Slides (1280x720)</p>
-          </div>
-        </div>
+        )}
+
+        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
 
         {/* Tools */}
-        <div className="flex flex-wrap items-center justify-center gap-2 bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 shrink-0">
           <button 
-            className={`p-2 rounded-md transition-all ${currentTool === 'select' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+            className={`p-1.5 rounded transition-all ${currentTool === 'select' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
             onClick={() => setCurrentTool('select')} title="Select/Move Tool"
-          ><MousePointer2 size={20} /></button>
-          <div className="w-px h-6 bg-slate-700 mx-1"></div>
+          ><MousePointer2 size={16} /></button>
           <button 
-            className={`p-2 rounded-md transition-all ${currentTool === 'arrow' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+            className={`p-1.5 rounded transition-all ${currentTool === 'arrow' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
             onClick={() => setCurrentTool('arrow')} title="Draw Arrow Tool"
-          ><ArrowRight size={20} /></button>
+          ><ArrowRight size={16} /></button>
           <button 
-            className={`p-2 rounded-md transition-all ${currentTool === 'text' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+            className={`p-1.5 rounded transition-all ${currentTool === 'text' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
             onClick={() => setCurrentTool('text')} title="Text Tool"
-          ><Type size={20} /></button>
+          ><Type size={16} /></button>
         </div>
 
-        {/* Props */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex gap-1 bg-slate-900/50 p-1.5 rounded-lg border border-slate-800">
+        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
+
+        {/* Colors & Delete */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
             {colors.map(color => (
               <button
                 key={color}
-                className={`w-6 h-6 rounded-full transition-transform ${activeColor === color ? 'scale-125 border-2 border-white shadow-md' : 'border border-slate-600 hover:scale-110'}`}
+                className={`w-5 h-5 rounded-full transition-transform ${activeColor === color ? 'scale-110 border border-white shadow-md' : 'border border-slate-700 hover:scale-105'}`}
                 style={{ backgroundColor: color }}
                 onClick={() => {
                   setActiveColor(color);
@@ -564,38 +586,31 @@ const App: React.FC = () => {
             ))}
           </div>
           <button
-            className="p-2 bg-rose-500/10 text-rose-400 rounded-lg hover:bg-rose-500/20 transition-colors border border-rose-500/20 flex items-center justify-center disabled:opacity-50"
+            className="p-1.5 bg-rose-500/10 text-rose-400 rounded-lg hover:bg-rose-500/20 transition-colors border border-rose-500/20 flex items-center justify-center disabled:opacity-40 shrink-0"
             onClick={deleteSelected} disabled={!elements.some(el => el.isSelected)} title="Delete Selected"
-          ><Trash2 size={18} /></button>
+          ><Trash2 size={15} /></button>
         </div>
 
-        
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {allSlides.length > 0 && (
-              <div className="flex items-center gap-2 mr-4 bg-slate-800 rounded-lg px-2 py-1">
-                 <button onClick={() => switchSlide(currentSlideIndex - 1)} disabled={currentSlideIndex === 0} className="px-2 py-1 text-slate-400 hover:text-white disabled:opacity-30">&lt;</button>
-                 <span className="text-sm font-medium">Slide {currentSlideIndex + 1} / {allSlides.length}</span>
-                 <button onClick={() => switchSlide(currentSlideIndex + 1)} disabled={currentSlideIndex === allSlides.length - 1} className="px-2 py-1 text-slate-400 hover:text-white disabled:opacity-30">&gt;</button>
-              </div>
-          )}
+        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
 
-          <label className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all rounded-lg cursor-pointer text-sm font-medium">
-            <Upload size={18} />
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <label className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-750 transition-all rounded-lg cursor-pointer text-xs font-semibold text-slate-200">
+            <Upload size={14} />
             <span>Load Image</span>
             <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
           </label>
           <button 
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20 text-white transition-all rounded-lg text-sm font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#3A9F83] hover:bg-[#348e75] text-white transition-all rounded-lg text-xs font-semibold disabled:opacity-40"
             onClick={loadAIPayload} disabled={!slideImage || isAnalyzing}
           >
             <span>{isAnalyzing ? "AI Calculating..." : "Auto Layout PPT"}</span>
           </button>
           <button 
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-600 to-rose-600 hover:from-orange-500 hover:to-rose-500 shadow-lg shadow-orange-500/20 text-white transition-all rounded-lg text-sm font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#C6945D] hover:bg-[#b28452] text-white transition-all rounded-lg text-xs font-semibold disabled:opacity-40"
             onClick={exportPPTX} disabled={!slideImage && elements.length === 0}
           >
-            <FileBox size={18} />
+            <FileBox size={14} />
             <span>Export Native .PPTX</span>
           </button>
         </div>

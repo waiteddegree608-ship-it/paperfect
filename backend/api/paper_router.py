@@ -17,12 +17,12 @@ async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(
     return {"status": "processing", "book_name": book_name}
 
 @router.post("/api/upload_paper")
-async def upload_paper(background_tasks: BackgroundTasks, file: UploadFile = File(...), prompt_type: str = Form("提示词汇总"), ppt_mode: str = Form("creative")):
+async def upload_paper(background_tasks: BackgroundTasks, file: UploadFile = File(...), prompt_type: str = Form("提示词汇总"), ppt_mode: str = Form("creative"), ppt_lang: str = Form("zh")):
     book_name, pdf_path = await handle_upload_file(file, "paper")
     task_id = f"papers_{book_name}"
     if task_id not in active_tasks:
         active_tasks.add(task_id)
-        background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode)
+        background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode, ppt_lang)
     return {"status": "processing", "book_name": book_name}
 
 @router.delete("/api/delete_target")
@@ -76,32 +76,104 @@ class PromptSaveRequest(BaseModel):
     content: str
 
 @router.get("/api/prompts")
-async def list_prompts():
+async def list_prompts(lang: str = "zh"):
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     if not os.path.exists(prompt_dir):
         os.makedirs(prompt_dir)
-    files = [f for f in os.listdir(prompt_dir) if f.endswith('.md')]
-    names = [os.path.splitext(f)[0] for f in files]
-    return {"status": "success", "prompts": names}
+        
+    files = [f for f in os.listdir(prompt_dir) if f.endswith('.md') and not f.endswith('_en.md') and not f.endswith('_zh.md')]
+    
+    prompts_list = []
+    for f in files:
+        original_name = os.path.splitext(f)[0]
+        path = os.path.join(prompt_dir, f"{original_name}_{lang}.md")
+        if not os.path.exists(path):
+            path = os.path.join(prompt_dir, f)
+            
+        display_name = original_name
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    first_line = file.readline().strip()
+                    if first_line.startswith("## "):
+                        display_name = first_line[3:].strip()
+            except Exception:
+                pass
+                
+        prompts_list.append({
+            "id": original_name,
+            "name": display_name
+        })
+        
+    return {"status": "success", "prompts": prompts_list}
 
 @router.get("/api/prompts/{prompt_name}")
-async def get_prompt(prompt_name: str):
+async def get_prompt(prompt_name: str, lang: str = "zh"):
+    prompt_name = os.path.basename(prompt_name)
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
-    path = os.path.join(prompt_dir, f"{prompt_name}.md")
+    
+    # Try language-specific file first, then fall back to master template
+    path = os.path.join(prompt_dir, f"{prompt_name}_{lang}.md")
+    if not os.path.exists(path):
+        path = os.path.join(prompt_dir, f"{prompt_name}.md")
+        
     if not os.path.exists(path):
         return {"status": "error", "message": "Prompt not found"}
     with open(path, "r", encoding="utf-8") as f:
         return {"status": "success", "content": f.read()}
 
+def translate_prompt_task(prompt_name: str, content: str, target_lang: str):
+    try:
+        from backend.core.config import load_config
+        from openai import OpenAI
+        cfg = load_config()
+        client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"])
+        model = cfg.get("chat_model", "Qwen/Qwen2.5-72B-Instruct")
+        
+        if target_lang == "en":
+            sys_prompt = "You are a professional academic translation assistant. Translate the following Chinese academic prompt template into English. Keep the layout, headers, and bullet points identical. Output ONLY the English translation, no other text."
+        else:
+            sys_prompt = "You are a professional academic translation assistant. Translate the following English academic prompt template into Chinese. Keep the layout, headers, and bullet points identical. Output ONLY the Chinese translation, no other text."
+            
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": content}
+            ],
+            temperature=0.1
+        )
+        translated_content = response.choices[0].message.content.strip()
+        
+        prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
+        target_file = os.path.join(prompt_dir, f"{prompt_name}_{target_lang}.md")
+        with open(target_file, "w", encoding="utf-8") as f:
+            f.write(translated_content)
+        print(f"[Prompt Auto-Trans] Successfully translated '{prompt_name}' to {target_lang}", flush=True)
+    except Exception as e:
+        print(f"[Prompt Auto-Trans] Failed to translate: {e}", flush=True)
+
 @router.post("/api/prompts/{prompt_name}")
-async def save_prompt(prompt_name: str, req: PromptSaveRequest):
+async def save_prompt(prompt_name: str, req: PromptSaveRequest, background_tasks: BackgroundTasks, lang: str = "zh"):
     prompt_name = os.path.basename(prompt_name)
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     if not os.path.exists(prompt_dir):
         os.makedirs(prompt_dir)
-    path = os.path.join(prompt_dir, f"{prompt_name}.md")
+        
+    # 1. Save language-specific file
+    path = os.path.join(prompt_dir, f"{prompt_name}_{lang}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(req.content)
+        
+    # Also save as master file for fallback
+    master_path = os.path.join(prompt_dir, f"{prompt_name}.md")
+    with open(master_path, "w", encoding="utf-8") as f:
+        f.write(req.content)
+        
+    # 2. Trigger auto-translation for the other language
+    other_lang = "en" if lang == "zh" else "zh"
+    background_tasks.add_task(translate_prompt_task, prompt_name, req.content, other_lang)
+        
     return {"status": "success"}
 
 @router.delete("/api/prompts/{prompt_name}")
@@ -109,7 +181,17 @@ async def delete_prompt(prompt_name: str):
     prompt_name = os.path.basename(prompt_name)
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
     path = os.path.join(prompt_dir, f"{prompt_name}.md")
+    deleted = False
     if os.path.exists(path):
         os.remove(path)
+        deleted = True
+    # Also delete language-specific files if they exist
+    for lang in ["zh", "en"]:
+        lang_path = os.path.join(prompt_dir, f"{prompt_name}_{lang}.md")
+        if os.path.exists(lang_path):
+            os.remove(lang_path)
+            deleted = True
+            
+    if deleted:
         return {"status": "success"}
     return {"status": "error", "message": "Prompt not found"}

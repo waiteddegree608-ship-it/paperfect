@@ -72,7 +72,7 @@ async def run_subprocess(name, cmd, cwd=None, book_name=None):
     force_print(f"[{name}] Completed successfully.")
     return ""
 
-async def async_run_builder(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative"):
+async def async_run_builder(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative", ppt_lang: str = "zh"):
     task_id = f"{item_type}s_{book_name}"
     try:
         if item_type == "book":
@@ -98,6 +98,10 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
 
             # Step 1: Translate and Parse in parallel
             async def run_translate():
+                if ppt_lang == "en":
+                    force_print("[Translate] Target language is English. Skipping translation and copying original PDF.")
+                    shutil.copy(pdf_path, translated_pdf)
+                    return
                 script_path = os.path.join(get_base_dir(), "backend", "services", "paper_translator.py")
                 try:
                     await run_subprocess("Translate", [sys.executable, "-u", script_path, pdf_path, translated_pdf], book_name=book_name)
@@ -129,7 +133,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     model = cfg.get("parse_model", "Qwen/Qwen3-VL-235B-A22B-Thinking") 
                     
                     bot = PaperReaderBot(api_key=api_key, base_url=base_url, model_name=model)
-                    prompt = get_stage1_prompt(prompt_type)
+                    prompt = get_stage1_prompt(prompt_type, ppt_lang)
                     md_report = bot.get_stage1_md(pdf_path, prompt) 
                     
                     with open(kb_file, "w", encoding="utf-8") as f:
@@ -149,20 +153,25 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 parse_api_key_val = cfg.get("parse_api_key", [""])
                 api_key = random.choice(parse_api_key_val) if parse_api_key_val else ""
                 ppt_model = cfg.get("paper_model") or cfg.get("chat_model") or "Qwen/Qwen2.5-72B-Instruct"
+                api_url = cfg.get("chat_api_url") or cfg.get("parse_api_url") or "https://api.siliconflow.cn/v1"
                 
-                cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model]
+                cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model, api_url, ppt_lang]
                 cwd = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker")
                 
-                for attempt in range(3):
+                max_attempts = 8
+                for attempt in range(max_attempts):
                     try:
                         await run_subprocess("PPT Compiler", cmd, cwd=cwd)
                         break
                     except Exception as e:
-                        if attempt < 2:
-                            force_print(f"PPT Compilation failed: {e}. Retrying ({attempt+2}/3)...")
-                            await asyncio.sleep(2)
+                        if attempt < max_attempts - 1:
+                            api_key = random.choice(parse_api_key_val) if parse_api_key_val else ""
+                            cmd[6] = api_key
+                            force_print(f"PPT Compilation failed: {e}. Retrying with key rotation ({attempt+2}/{max_attempts})...")
+                            await asyncio.sleep(8)
                         else:
                             force_print(f"PPT Compilation permanently failed: {e}")
+                            raise e
 
             async def run_annotate():
                 force_print(f"\n========== Step 4: Generate Annotated PDF ==========")
@@ -175,6 +184,12 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
                     if os.path.exists(ann_in_work):
                         shutil.move(ann_in_work, annotated_pdf)
+                    json_in_work = os.path.join(work_dir, "annotations.json")
+                    target_json = os.path.join(target_dir, "marked", "annotations.json")
+                    if os.path.exists(json_in_work):
+                        if os.path.exists(target_json):
+                            os.remove(target_json)
+                        shutil.move(json_in_work, target_json)
                 except Exception as e:
                     import traceback
                     force_print(f"Annotator failed: {repr(e)}")

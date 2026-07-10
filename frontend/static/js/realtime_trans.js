@@ -297,9 +297,9 @@ class RealtimeTranslationManager {
     async triggerTranslation(text) {
         if (this.translateTimeout) clearTimeout(this.translateTimeout);
         
-        this.statusText.textContent = "请求中...";
+        this.statusText.textContent = typeof getLang === 'function' && getLang() === 'en' ? "Requesting..." : "请求中...";
         this.statusText.style.color = "var(--secondary-accent)";
-        this.resultText.innerHTML = "<span style='color: var(--text-muted);'>正在召唤翻译大模型...</span>";
+        this.resultText.innerHTML = "<span style='color: var(--text-muted);'>" + (typeof getLang === 'function' && getLang() === 'en' ? 'Calling translation model...' : '正在召唤翻译大模型...') + "</span>";
 
         try {
             const res = await fetch("/api/realtime_translate", {
@@ -307,7 +307,8 @@ class RealtimeTranslationManager {
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
                     book_name: this.bookName,
-                    selected_text: text
+                    selected_text: text,
+                    lang: typeof getLang === 'function' ? getLang() : 'zh'
                 })
             });
             

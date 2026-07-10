@@ -7,21 +7,33 @@ import json
 from openai import OpenAI
 from dotenv import load_dotenv
 
-def load_config():
-    # Load .env from root directory (ddl)
-    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
-    load_dotenv(env_path)
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-load_config()
+from backend.core.config import load_config
 
-# 我们优先使用 ANNOTATOR_API_KEY，如果没有则回退到 CHAT_API_KEY
-API_KEY = os.environ.get("ANNOTATOR_API_KEY") or os.environ.get("CHAT_API_KEY", "")
+cfg = load_config()
 
-BASE_URL = os.environ.get("ANNOTATOR_API_URL") or os.environ.get("CHAT_API_URL", "https://api.siliconflow.cn/v1")
+from dotenv import dotenv_values
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+env_dict = dotenv_values(env_path)
+
+def get_keys_list():
+    raw_val = env_dict.get("ANNOTATOR_API_KEY") or env_dict.get("CHAT_API_KEY") or env_dict.get("PARSE_API_KEY") or ""
+    raw_val = raw_val.strip().strip("'").strip('"')
+    if not raw_val:
+        return []
+    return [k.strip().strip("'").strip('"') for k in raw_val.split(",") if k.strip()]
+
+API_KEYS = get_keys_list()
+import random
+API_KEY = random.choice(API_KEYS) if API_KEYS else ""
+
+BASE_URL = cfg.get("annotator_api_url") or cfg.get("chat_api_url") or "https://api.siliconflow.cn/v1"
 if not BASE_URL: BASE_URL = "https://api.siliconflow.cn/v1"
 
-MODEL_NAME = os.environ.get("ANNOTATOR_MODEL") or os.environ.get("CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct")
-if not MODEL_NAME: MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+MODEL_NAME = cfg.get("annotator_model") or cfg.get("chat_model") or "gemini-2.5-flash"
+if not MODEL_NAME: MODEL_NAME = "gemini-2.5-flash"
 
 # ================= 预设颜色 =================
 COLOR_MAP = {
@@ -35,21 +47,97 @@ def load_markdown(md_path):
     with open(md_path, "r", encoding="utf-8") as f:
         return f.read()
 
-def get_ai_annotations_for_page(client, page_text, md_content, page_num):
-    sys_prompt = f"""
+def _extract_json_array(text):
+    """Robustly extract a JSON array from LLM response text."""
+    text = text.strip()
+    # Method 1: direct parse
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, list):
+            return obj
+        if isinstance(obj, dict):
+            for v in obj.values():
+                if isinstance(v, list):
+                    return v
+        return None
+    except json.JSONDecodeError:
+        pass
+
+    # Method 2: extract from ```json ... ``` fenced blocks
+    import re as _re
+    pattern = r'```(?:json)?\s*([\[\{].*?[\]\}])\s*```'
+    matches = _re.findall(pattern, text, _re.DOTALL)
+    for match in matches:
+        try:
+            obj = json.loads(match)
+            if isinstance(obj, list):
+                return obj
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    if isinstance(v, list):
+                        return v
+        except json.JSONDecodeError:
+            continue
+
+    # Method 3: find any JSON array in the text
+    pattern2 = r'(\[\s*\{.*?\}\s*\])'
+    matches2 = _re.findall(pattern2, text, _re.DOTALL)
+    for match in matches2:
+        try:
+            obj = json.loads(match)
+            if isinstance(obj, list):
+                return obj
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
+def get_ai_annotations_for_page(client, page_text, md_content, page_num, max_retries=2, lang="zh"):
+    if lang == "en":
+        sys_prompt = f"""
+# Role
+You are a top-tier AI academic reading assistant. Based on the provided deep analysis report, you actively find annotation anchors in the original English PDF text, extract exact character strings, and provide specific annotation plans.
+
+# Annotation Guidelines
+Carefully read the analysis report and strictly compare it with the current page's English text. Follow these annotation rules:
+1. Squiggly line (squiggly) + Red (red): Existing defects, challenges, limitations (pain points, prior work limitations)
+2. Highlight (highlight) + Yellow (yellow): Core innovations, major contributions (main motivation, key contributions)
+3. Underline (underline) + Blue (blue): Important methods, modules, datasets, metrics (specific architectural designs, module names, evaluation data)
+4. Sticky note (sticky_note) + Green (green): Overall summary or deep analysis (longer summarizing insights or core paragraph summaries)
+
+# Constraints & JSON Format
+- target_text MUST be an exact, verbatim substring from the Current Page Text below! Extract the most distinctive 5 to 15 consecutive English words to ensure reliable matching.
+- CRITICAL: Do NOT skip annotation just because the page content is detailed or not extensively covered in the analysis report. Find AT LEAST 1-3 noteworthy sentences per page, even if just explaining an algorithm step, parameter setting, or related work classification. Unless the page is purely a reference list, NEVER return an empty array []!
+- Output MUST be a valid JSON array only. Example format:
+[
+  {{
+    "target_text": "Extract exact words from the provided page text here...",
+    "annotation_type": "highlight",
+    "color": "yellow",
+    "note_content": "Your concise English annotation combining insights from the analysis report."
+  }}
+]
+
+====== Deep Analysis Report ======
+{md_content}
+"""
+        user_msg = f"This is the plain text extracted from page {page_num}. Please find places to annotate and output a valid JSON array:\n\n{page_text}"
+    else:
+        sys_prompt = f"""
 # Role
 你是一个顶级的 AI 学术阅读助教。你的任务是基于我提供的【中文深度解析报告】，在原始的英文 PDF 论文文本中主动寻找需要批注的锚点，提取原文精确字符串，并给出具体的批注方案。
 
-# Annotation Guidelines (标注规范)
+# Annotation Guidelines
 请仔细阅读【中文深度解析报告】，并严格对照当前页面的英文原文，按照以下规范进行批注：
-1. 🔴 波浪线 (squiggly) + 红色 (red)：【现有缺陷、挑战、问题】（对应解析中提到的当前痛点与挑战、前人工作的局限性）
-2. 🟡 高亮 (highlight) + 黄色 (yellow)：【核心创新点、重大贡献】（对应解析中本文提出的主要动机、核心贡献与关键创新）
-3. 🔵 下划线 (underline) + 蓝色 (blue)：【重要方法、网络模块、数据集与指标】（对应解析中介绍的具体结构设计、特有模块名、评测指标数据等客观事实）
-4. 📝 便条 (sticky_note) + 绿色 (green)：【全局总结或深度剖析】（用于较长的总结性观点或是对某个大段落的核心概括。将其挂载在相关段首、或是整体架构说明旁）
+1. 波浪线 (squiggly) + 红色 (red)：【现有缺陷、挑战、问题】（对应解析中提到的当前痛点与挑战、前人工作的局限性）
+2. 高亮 (highlight) + 黄色 (yellow)：【核心创新点、重大贡献】（对应解析中本文提出的主要动机、核心贡献与关键创新）
+3. 下划线 (underline) + 蓝色 (blue)：【重要方法、网络模块、数据集与指标】（对应解析中介绍的具体结构设计、特有模块名、评测指标数据等客观事实）
+4. 便条 (sticky_note) + 绿色 (green)：【全局总结或深度剖析】（用于较长的总结性观点或是对某个大段落的核心概括。将其挂载在相关段首、或是整体架构说明旁）
 
 # Constraints & JSON Format
 - target_text 必须**一字不差**地来源于下面提供的当前页纯文本 (Current Page Text)！截取最具标志性的 5 到 15 个连续英文单词，以此确保能在页面中被无误地检索定位。
-- 【极其重要】你**绝对不能**仅仅因为当前页内容较为细节或没有在“深度解析报告”里大篇幅提及，就放弃批注！无论如何，请为当前页寻找**至少 1-3 处值得注意的句子**进行批注，哪怕仅仅是解释一个算法步骤、参数设置或是给相关工作分类。除非该页完全是纯参考文献列表，否则严禁返回空数组 []！
+- 【极其重要】你**绝对不能**仅仅因为当前页内容较为细节或没有在"深度解析报告"里大篇幅提及，就放弃批注！无论如何，请为当前页寻找**至少 1-3 处值得注意的句子**进行批注，哪怕仅仅是解释一个算法步骤、参数设置或是给相关工作分类。除非该页完全是纯参考文献列表，否则严禁返回空数组 []！
 - 你的输出必须且仅仅是合法的 JSON 数组，直接输出 JSON。示例格式如下：
 [
   {{
@@ -63,48 +151,69 @@ def get_ai_annotations_for_page(client, page_text, md_content, page_num):
 ======【中文深度解析报告】======
 {md_content}
 """
+        user_msg = f"这是第 {page_num} 页提取出来的纯文本，请找出需要标注的地方并输出合法的JSON数组：\n\n{page_text}"
 
     messages = [
         {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": f"这是第 {page_num} 页提取出来的纯文本，请找出需要标注的地方并输出合法的JSON数组：\n\n{page_text}"}
+        {"role": "user", "content": user_msg}
     ]
 
-    try:
-        print(f"[{MODEL_NAME}] 正在请求第 {page_num} 页的标注数据...", flush=True)
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            temperature=0.2, 
-            max_tokens=2048,
-            response_format={"type": "json_object"} if "72b" in MODEL_NAME.lower() else None # 强化 JSON 输出
-        )
-        
-        reply = response.choices[0].message.content.strip()
-        
-        if "```json" in reply:
-            reply = reply.split("```json")[-1].split("```")[0].strip()
-        elif "```" in reply:
-             reply = reply.split("```")[-1].split("```")[0].strip()
-             
+
+    for attempt in range(max_retries + 1):
         try:
-            annotations = json.loads(reply)
-            # 有时模型会包装在一个 key 里比如 {"annotations": [...]}
-            if isinstance(annotations, dict):
-                for k, v in annotations.items():
-                    if isinstance(v, list):
-                        annotations = v
-                        break
-        except json.JSONDecodeError:
-            print(f"第 {page_num} 页 JSON 解析失败。大模型原始返回:\n{reply}", flush=True)
-            return []
+            retry_label = f" (retry {attempt})" if attempt > 0 else ""
+            print(f"[{MODEL_NAME}] Requesting annotations for page {page_num}...{retry_label}", flush=True)
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=0.2, 
+                max_tokens=2048,
+            )
+            
+            reply = response.choices[0].message.content.strip()
+            annotations = _extract_json_array(reply)
+            
+            if annotations is None:
+                print(f"  [WARN] Page {page_num}: JSON extraction failed. Reply preview: {reply[:200]}", flush=True)
+                if attempt < max_retries:
+                    import time; time.sleep(2)
+                    continue
+                return []
+            
+            print(f"  Page {page_num}: {len(annotations)} annotations extracted", flush=True)
+            return annotations
 
-        if not isinstance(annotations, list):
+        except Exception as e:
+            print(f"  [ERROR] Page {page_num} API call failed: {e}", flush=True)
+            if attempt < max_retries:
+                if 'API_KEYS' in globals() and API_KEYS:
+                    import random
+                    client.api_key = random.choice(API_KEYS)
+                    print(f"  [Rotated Key] Rotated API key to: ...{client.api_key[-6:]}", flush=True)
+                
+                # Parse retry wait time from error message if available
+                sleep_time = 8.0
+                err_str = str(e)
+                import re as _re
+                match = _re.search(r'[Pp]lease retry in ([\d\.]+)s', err_str)
+                if match:
+                    try:
+                        sleep_time = float(match.group(1)) + 1.5
+                        print(f"  [Rate Limit] Dynamically waiting for {sleep_time:.2f} seconds...", flush=True)
+                    except ValueError:
+                        pass
+                else:
+                    match_after = _re.search(r'[Pp]lease retry after (\d+)s', err_str)
+                    if match_after:
+                        try:
+                            sleep_time = float(match_after.group(1)) + 1.5
+                            print(f"  [Rate Limit] Dynamically waiting for {sleep_time:.2f} seconds...", flush=True)
+                        except ValueError:
+                            pass
+                            
+                import time; time.sleep(sleep_time)
+                continue
             return []
-        return annotations
-
-    except Exception as e:
-        print(f"解析第 {page_num} 页大模型返回结果时出错: {e}", flush=True)
-        return []
 
 def apply_annotations_to_pdf(directory_path):
     print(f"\n=======================================================", flush=True)
@@ -138,10 +247,18 @@ def apply_annotations_to_pdf(directory_path):
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
     md_content = load_markdown(md_path)
     
+    # Auto-detect language of deep analysis report
+    import re
+    cjk_re = re.compile(r'[\u4e00-\u9fff]')
+    lang = "en" if not cjk_re.search(md_content[:1500]) else "zh"
+    print(f"Auto-detected report language: {lang}", flush=True)
+    
     doc = fitz.open(pdf_path)
     max_pages = len(doc)
     print(f"PDF 共 {max_pages} 页，全书批注流程已启动！", flush=True)
-
+ 
+    all_ai_annotations = []
+ 
     # 逐页处理
     for page_num in range(max_pages):
         page = doc[page_num]
@@ -152,7 +269,11 @@ def apply_annotations_to_pdf(directory_path):
             print(f"第 {page_num + 1} 页文字过少，大概全是图片，跳过。", flush=True)
             continue
             
-        annotations = get_ai_annotations_for_page(client, page_text, md_content, page_num + 1)
+        annotations = get_ai_annotations_for_page(client, page_text, md_content, page_num + 1, lang=lang)
+        
+        # Sleep to avoid rate limits (Gemini free tier allows 15 requests per minute)
+        import time
+        time.sleep(4.5)
         
         success_count = 0
         for ann in annotations:
@@ -172,25 +293,56 @@ def apply_annotations_to_pdf(directory_path):
             if text_instances:
                 color_rgb = COLOR_MAP.get(color_name, COLOR_MAP["yellow"])
                 
+                # Calculate percentage rects relative to page size
+                rects_pct = []
+                for r in text_instances:
+                    rects_pct.append({
+                        "left": (r.x0 / page.rect.width) * 100,
+                        "top": (r.y0 / page.rect.height) * 100,
+                        "width": ((r.x1 - r.x0) / page.rect.width) * 100,
+                        "height": ((r.y1 - r.y0) / page.rect.height) * 100
+                    })
+                
+                normalized_type = "highlight"
+                if annot_type == "underline":
+                    normalized_type = "underline"
+                elif annot_type == "squiggly":
+                    normalized_type = "squiggly"
+                elif annot_type == "sticky_note":
+                    normalized_type = "note"
+
+                all_ai_annotations.append({
+                    "id": f"ai_{page_num+1}_{success_count}_{len(all_ai_annotations)}",
+                    "type": normalized_type,
+                    "pageNumber": page_num + 1,
+                    "text": target_text,
+                    "rects": rects_pct,
+                    "note_content": note_content or "",
+                    "is_ai": True
+                })
+
                 if annot_type == "highlight":
                     highlight = page.add_highlight_annot(text_instances)
                     highlight.set_colors(stroke=color_rgb)
                     if note_content: 
-                        highlight.set_info(title="AI 助教", content=note_content)
+                        title = "AI Assistant" if lang == "en" else "AI 助教"
+                        highlight.set_info(title=title, content=note_content)
                     highlight.update()
                     
                 elif annot_type == "underline":
                     underline = page.add_underline_annot(text_instances)
                     underline.set_colors(stroke=color_rgb)
                     if note_content:
-                        underline.set_info(title="AI 助教", content=note_content)
+                        title = "AI Assistant" if lang == "en" else "AI 助教"
+                        underline.set_info(title=title, content=note_content)
                     underline.update()
                     
                 elif annot_type == "squiggly":
                     squiggly = page.add_squiggly_annot(text_instances)
                     squiggly.set_colors(stroke=color_rgb)
                     if note_content:
-                        squiggly.set_info(title="AI 助教", content=note_content)
+                        title = "AI Assistant" if lang == "en" else "AI 助教"
+                        squiggly.set_info(title=title, content=note_content)
                     squiggly.update()
                     
                 elif annot_type == "sticky_note":
@@ -198,7 +350,8 @@ def apply_annotations_to_pdf(directory_path):
                     point = fitz.Point(rect.x0, rect.y0)
                     note = page.add_text_annot(point, note_content, icon="Note")
                     note.set_colors(stroke=color_rgb)
-                    note.set_info(title="深度总结")
+                    title = "Summary" if lang == "en" else "深度总结"
+                    note.set_info(title=title)
                     note.update()
                     
                 success_count += 1
@@ -211,6 +364,16 @@ def apply_annotations_to_pdf(directory_path):
         doc.save(output_pdf_path)
 
     doc.close()
+    
+    # Save annotations.json
+    json_path = os.path.join(directory_path, "annotations.json")
+    try:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(all_ai_annotations, f, ensure_ascii=False, indent=2)
+        print(f"AI annotations metadata saved to: {json_path}", flush=True)
+    except Exception as e:
+        print(f"[错误] 写入 annotations.json 失败: {e}", flush=True)
+
     print(f"\n处理完成。批注文件已安全保存为：\n{output_pdf_path}\n=======================================================\n", flush=True)
 
 if __name__ == "__main__":

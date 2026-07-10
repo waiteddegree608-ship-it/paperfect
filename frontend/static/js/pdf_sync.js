@@ -64,6 +64,25 @@ class PdfScrollSyncManager {
                                 if (this.isSyncEnabled) {
                                     this.syncScroll(id);
                                 }
+
+                                // Sync PPT slide page
+                                try {
+                                    const pageNum = innerWin.PDFViewerApplication.page;
+                                    if (pageNum && window.pptPageMapping) {
+                                        const slideIndex = Object.keys(window.pptPageMapping).find(
+                                            key => window.pptPageMapping[key] === pageNum
+                                        );
+                                        if (slideIndex !== undefined) {
+                                            const pptIframe = document.querySelector('#pane-ppt iframe');
+                                            if (pptIframe && pptIframe.contentWindow) {
+                                                pptIframe.contentWindow.postMessage({
+                                                    type: 'SELECT_SLIDE_BY_INDEX',
+                                                    index: parseInt(slideIndex, 10)
+                                                }, '*');
+                                            }
+                                        }
+                                    }
+                                } catch (err) {}
                             });
 
                             // 标记为已挂载

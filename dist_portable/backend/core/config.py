@@ -16,28 +16,39 @@ def load_config():
         
     env_dict = dotenv_values(ENV_PATH)
     
+    def clean_key(val):
+        if not val:
+            return ""
+        val = val.strip().strip("'").strip('"')
+        if "," in val:
+            parts = [p.strip().strip("'").strip('"') for p in val.split(",") if p.strip()]
+            import random
+            return random.choice(parts) if parts else ""
+        return val
+    
     cfg = {
-        "parse_api_url": env_dict.get("PARSE_API_URL", "https://api.siliconflow.cn/v1"),
+        "parse_api_url": env_dict.get("PARSE_API_URL", "https://api.siliconflow.cn/v1").strip().strip("'").strip('"'),
         "parse_api_key": [],
-        "parse_model": env_dict.get("PARSE_MODEL", "Qwen/Qwen2.5-72B-Instruct"),
-        "chat_api_url": env_dict.get("CHAT_API_URL", "https://api.siliconflow.cn/v1"),
-        "chat_api_key": env_dict.get("CHAT_API_KEY", ""),
-        "chat_model": env_dict.get("CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct"),
-        "paper_api_url": env_dict.get("PAPER_API_URL", ""),
-        "paper_api_key": env_dict.get("PAPER_API_KEY", ""),
-        "paper_model": env_dict.get("PAPER_MODEL", ""),
-        "annotator_api_url": env_dict.get("ANNOTATOR_API_URL", ""),
-        "annotator_api_key": env_dict.get("ANNOTATOR_API_KEY", ""),
-        "annotator_model": env_dict.get("ANNOTATOR_MODEL", ""),
-        "translate_api_url": env_dict.get("TRANSLATE_API_URL", ""),
-        "translate_api_key": env_dict.get("TRANSLATE_API_KEY", ""),
-        "translate_model": env_dict.get("TRANSLATE_MODEL", "")
+        "parse_model": env_dict.get("PARSE_MODEL", "Qwen/Qwen2.5-72B-Instruct").strip().strip("'").strip('"'),
+        "chat_api_url": env_dict.get("CHAT_API_URL", "https://api.siliconflow.cn/v1").strip().strip("'").strip('"'),
+        "chat_api_key": clean_key(env_dict.get("CHAT_API_KEY", "")),
+        "chat_model": env_dict.get("CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct").strip().strip("'").strip('"'),
+        "paper_api_url": env_dict.get("PAPER_API_URL", "").strip().strip("'").strip('"'),
+        "paper_api_key": clean_key(env_dict.get("PAPER_API_KEY", "")),
+        "paper_model": env_dict.get("PAPER_MODEL", "").strip().strip("'").strip('"'),
+        "annotator_api_url": env_dict.get("ANNOTATOR_API_URL", "").strip().strip("'").strip('"'),
+        "annotator_api_key": clean_key(env_dict.get("ANNOTATOR_API_KEY", "")),
+        "annotator_model": env_dict.get("ANNOTATOR_MODEL", "").strip().strip("'").strip('"'),
+        "translate_api_url": env_dict.get("TRANSLATE_API_URL", "").strip().strip("'").strip('"'),
+        "translate_api_key": clean_key(env_dict.get("TRANSLATE_API_KEY", "")),
+        "translate_model": env_dict.get("TRANSLATE_MODEL", "").strip().strip("'").strip('"')
     }
     
     # Process the comma-separated parse API keys list for backward compatibility with existing code
     raw_parse_keys = env_dict.get("PARSE_API_KEY", "")
     if raw_parse_keys:
-        cfg["parse_api_key"] = [k.strip() for k in raw_parse_keys.split(",") if k.strip()]
+        raw_parse_keys = raw_parse_keys.strip().strip("'").strip('"')
+        cfg["parse_api_key"] = [k.strip().strip("'").strip('"') for k in raw_parse_keys.split(",") if k.strip()]
         
     return cfg
 

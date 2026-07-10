@@ -34,6 +34,11 @@ FRONTEND_DIR = os.path.join(get_base_dir(), "frontend")
 templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
 
+# Create frontend/ppt_editor if it doesn't exist to prevent startup crash
+ppt_editor_dir = os.path.join(FRONTEND_DIR, "ppt_editor")
+os.makedirs(ppt_editor_dir, exist_ok=True)
+app.mount("/ppt_editor_app", StaticFiles(directory=ppt_editor_dir), name="ppt_editor_app")
+
 # Include Routers
 app.include_router(paper_router.router)
 app.include_router(ppt_router.router)
@@ -46,11 +51,6 @@ app.include_router(library_router.router)
 async def library_page(request: Request):
     return templates.TemplateResponse("library.html", {"request": request})
 
-@app.get("/old_index", response_class=HTMLResponse)
-async def old_index(request: Request):
-    books = scan_items("book")
-    papers = scan_items("paper")
-    return templates.TemplateResponse("index.html", {"request": request, "books": books, "papers": papers})
 
 
 
@@ -85,23 +85,40 @@ def get_cover(book_name: str):
 async def get_pdf(book_name: str):
     item = get_item_by_name(book_name)
     if not item or not os.path.exists(item.get("pdf_path", "")): raise HTTPException(status_code=404, detail="PDF not found")
-    return FileResponse(item["pdf_path"], media_type="application/pdf")
+    return FileResponse(item["pdf_path"], media_type="application/pdf", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 @app.get("/pdf_translated/{book_name}")
 async def get_pdf_translated(book_name: str):
     item = get_item_by_name(book_name)
     if not item or not os.path.exists(item.get("translated_pdf_path", "")) : raise HTTPException(status_code=404, detail="Translated PDF not found")
-    return FileResponse(item["translated_pdf_path"], media_type="application/pdf")
+    return FileResponse(item["translated_pdf_path"], media_type="application/pdf", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 @app.get("/pdf_annotated/{book_name}")
 async def get_pdf_annotated(book_name: str):
     item = get_item_by_name(book_name)
     if not item or not os.path.exists(item.get("annotated_pdf_path", "")) : raise HTTPException(status_code=404, detail="Annotated PDF not found")
-    return FileResponse(item["annotated_pdf_path"], media_type="application/pdf")
+    return FileResponse(item["annotated_pdf_path"], media_type="application/pdf", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+@app.get("/api/annotations/{book_name}")
+async def get_ai_annotations(book_name: str):
+    item = get_item_by_name(book_name)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    base_dir = get_base_dir()
+    target_dir = os.path.join(base_dir, "data", "textbooks" if item["type"] == "book" else "papers", book_name)
+    json_path = os.path.join(target_dir, "marked", "annotations.json")
+    if not os.path.exists(json_path):
+        return []
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Read annotations.json error:", e)
+        return []
 
 @app.get("/ppt_editor/{book_name}")
 async def ppt_editor_page(request: Request, book_name: str):
-    return RedirectResponse(f"http://localhost:8081/?book={book_name}")
+    return RedirectResponse(f"/ppt_editor_app/index.html?book={book_name}")
 
 if __name__ == "__main__":
     import uvicorn

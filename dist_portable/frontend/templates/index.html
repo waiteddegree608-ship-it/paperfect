@@ -41,9 +41,9 @@
 
         body[data-theme="dark-plus"] {
             --bg-color: #1E1E1E; --text-color: #CCCCCC; --header-bg: #1B4D54; --header-border: #181818;
-            --card-bg: #181818; --card-border: #181818; --card-hover-border: #004F8B;
-            --primary-accent: #004F8B; --primary-hover: #004F8B; --secondary-accent: #004F8B; --secondary-hover: #004F8B;
-            --danger-color: #004F8B; --upload-accent: #004F8B; --text-muted: #CCCCCC;
+            --card-bg: #181818; --card-border: #181818; --card-hover-border: #3794ff;
+            --primary-accent: #3794ff; --primary-hover: #5ea3ff; --secondary-accent: #3794ff; --secondary-hover: #5ea3ff;
+            --danger-color: #e74c3c; --upload-accent: #3794ff; --text-muted: #CCCCCC;
             --input-bg: #181818; --icon-btn-bg: #181818; --modal-bg: #181818;
             --header-icon-color: #CCCCCC;
             --logo-color: #CCCCCC;
@@ -366,7 +366,7 @@
         <div class="header-actions">
             <select id="themeSelector" onchange="changeTheme(this.value)" style="background: var(--input-bg); color: var(--text-color); border: 1px solid var(--header-border); border-radius: 8px; padding: 6px 12px; font-family: 'Inter'; outline: none; transition: 0.2s;">
                 <optgroup label="Core Themes">
-                    <option value="antigravity">Antigravity Neon (Custom)</option>
+                    <option value="antigravity">Neon</option>
                     <option value="dark-plus">Dark+</option>
                     <option value="cyan-light">Cyan Light</option>
                 </optgroup>
@@ -591,15 +591,9 @@
             </div>
             <p id="selectedFileName" style="color:#94a3b8; font-size:13px; margin-top:0; word-break: break-all;"></p>
             
-            <div class="form-group">
-                <label>将其作为何种类型解析？</label>
-                <select id="upload_item_type" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; font-family: 'Inter', sans-serif; outline: none;" onchange="togglePaperOptions()">
-                    <option value="book">教材</option>
-                    <option value="paper">论文</option>
-                </select>
-            </div>
+            <input type="hidden" id="upload_item_type" value="paper">
 
-            <div id="paper_options_group" style="display: none; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1); margin-bottom: 15px;">
+            <div id="paper_options_group" style="display: block; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1); margin-bottom: 15px;">
                 <div class="form-group">
                     <label>选择提示词方案</label>
                     <select id="upload_prompt" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; outline: none;">
@@ -608,13 +602,14 @@
                     </select>
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>PPT生成模式</label>
-                    <select id="upload_ppt_mode" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; outline: none;">
-                        <option value="simple">简单</option>
-                        <option value="creative">详细</option>
+                    <label>生成语言 / Output Language</label>
+                    <select id="upload_language" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 10px 12px; border-radius: 8px; outline: none;">
+                        <option value="zh" selected>中文 / Chinese</option>
+                        <option value="en">英文 / English</option>
                     </select>
                 </div>
             </div>
+            <input type="hidden" id="upload_ppt_mode" value="creative">
             
             <button class="save-btn" id="finalUploadBtn" onclick="submitUpload()">确认并开始上传后台解析</button>
         </div>
@@ -783,6 +778,7 @@
             if (item_type === 'paper') {
                 formData.append("prompt_type", document.getElementById('upload_prompt').value);
                 formData.append("ppt_mode", document.getElementById('upload_ppt_mode').value);
+                formData.append("ppt_lang", document.getElementById('upload_language').value);
             }
             
             const endpoint = item_type === 'paper' ? '/api/upload_paper' : '/api/upload';
@@ -895,15 +891,16 @@
         // API Configuration and Data
         async function ensurePromptOptions() {
             try {
-                const res = await fetch('/api/prompts');
+                const lang = localStorage.getItem('lang') || 'zh';
+                const res = await fetch('/api/prompts?lang=' + lang);
                 const data = await res.json();
                 const sel = document.getElementById('upload_prompt');
                 sel.innerHTML = '';
                 data.prompts.forEach(p => {
                     const opt = document.createElement('option');
-                    opt.value = p;
-                    opt.innerText = p;
-                    if (p === '计算机+人工智能') opt.selected = true;
+                    opt.value = p.id;
+                    opt.innerText = p.name;
+                    if (p.id === '计算机+人工智能') opt.selected = true;
                     sel.appendChild(opt);
                 });
             } catch(e) {}
@@ -1145,24 +1142,26 @@
         }
 
         async function loadPromptList() {
-            const res = await fetch('/api/prompts');
+            const lang = localStorage.getItem('lang') || 'zh';
+            const res = await fetch('/api/prompts?lang=' + lang);
             const data = await res.json();
             const list = document.getElementById('prompt-list-ul');
             list.innerHTML = '';
             data.prompts.forEach(p => {
                 const item = document.createElement('div');
-                item.className = 'prompt-item' + (currentPrompt === p ? ' active' : '');
-                item.innerText = p;
-                item.onclick = () => loadPromptContent(p);
+                item.className = 'prompt-item' + (currentPrompt === p.id ? ' active' : '');
+                item.innerText = p.name;
+                item.onclick = () => loadPromptContent(p.id);
                 list.appendChild(item);
             });
-            if (!currentPrompt && data.prompts.length > 0) {
-                if (data.prompts.includes('计算机+人工智能')) {
+            const ids = data.prompts.map(p => p.id);
+            if (!currentPrompt && ids.length > 0) {
+                if (ids.includes('计算机+人工智能')) {
                     loadPromptContent('计算机+人工智能');
                 } else {
-                    loadPromptContent(data.prompts[0]);
+                    loadPromptContent(ids[0]);
                 }
-            } else if (!data.prompts.includes(currentPrompt)) {
+            } else if (!ids.includes(currentPrompt)) {
                 document.getElementById('prompt-editor-pane').style.display = 'none';
                 currentPrompt = '';
             }
@@ -1170,10 +1169,17 @@
         
         async function loadPromptContent(name) {
             currentPrompt = name;
-            const res = await fetch('/api/prompts/' + encodeURIComponent(name));
+            const lang = localStorage.getItem('lang') || 'zh';
+            const res = await fetch('/api/prompts/' + encodeURIComponent(name) + '?lang=' + lang);
             const data = await res.json();
             document.getElementById('prompt-editor-pane').style.display = 'flex';
-            document.getElementById('cur_prompt_name').value = name;
+            
+            // Set dynamic header title
+            const listRes = await fetch('/api/prompts?lang=' + lang);
+            const listData = await listRes.json();
+            const found = listData.prompts.find(p => p.id === name);
+            const dispName = found ? found.name : name;
+            document.getElementById('cur_prompt_name').value = dispName;
             parseSegments(data.content);
             document.getElementById('cur_prompt_name').readOnly = true;
             loadPromptList(); 
@@ -1201,7 +1207,8 @@
         async function savePrompt() {
             if (!currentPrompt) return;
             const content = reconstructMarkdown();
-            await fetch('/api/prompts/' + encodeURIComponent(currentPrompt), {
+            const lang = localStorage.getItem('lang') || 'zh';
+            await fetch('/api/prompts/' + encodeURIComponent(currentPrompt) + '?lang=' + lang, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({content: content})

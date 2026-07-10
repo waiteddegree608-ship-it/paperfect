@@ -11,20 +11,40 @@ def get_character_config(char_id: str) -> dict:
             return json.load(f)
     return {}
 
-def get_stage1_prompt(prompt_name: str = "计算机+人工智能") -> str:
+def get_stage1_prompt(prompt_name: str = "计算机+人工智能", ppt_lang: str = "zh") -> str:
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
-    prompt_file = os.path.join(prompt_dir, f"{prompt_name}.md")
-    p1 = "未找到指定提示词"
+    # 1. Determine target file based on language mode
+    if ppt_lang == "en":
+        prompt_file = os.path.join(prompt_dir, f"{prompt_name}_en.md")
+        if not os.path.exists(prompt_file):
+            prompt_file = os.path.join(prompt_dir, f"{prompt_name}.md")
+    else:
+        prompt_file = os.path.join(prompt_dir, f"{prompt_name}_zh.md")
+        if not os.path.exists(prompt_file):
+            prompt_file = os.path.join(prompt_dir, f"{prompt_name}.md")
+            
+    p1 = "未找到指定提示词" if ppt_lang == "zh" else "Specified prompt file not found"
     if os.path.exists(prompt_file):
         with open(prompt_file, "r", encoding="utf-8") as f:
             p1 = f.read()
     else:
         # Fallback to default if custom not found
-        default_file = os.path.join(prompt_dir, "计算机+人工智能.md")
+        default_file = os.path.join(prompt_dir, "计算机+人工智能_en.md" if ppt_lang == "en" else "计算机+人工智能_zh.md")
+        if not os.path.exists(default_file):
+            default_file = os.path.join(prompt_dir, "计算机+人工智能.md")
         if os.path.exists(default_file):
             with open(default_file, "r", encoding="utf-8") as f:
                 p1 = f.read()
-    return f"""请仔细阅读提供的PDF所有页面内容，并直接按照以下需求汇总要求，为这篇论文生成一份深度的学术解析报告（使用Markdown格式）。
+                
+    if ppt_lang == "en":
+        return f"""Please read the provided PDF content carefully, and generate a deep academic analysis report (in Markdown format) for this paper based on the following guidelines.
+
+【Guidelines (from {prompt_name}.md)】:
+{p1}
+
+CRITICAL: You MUST output the entire report in ENGLISH. All section headers, bullet points, analyses, and descriptions must be written in English. Do NOT output any Chinese characters. If the guidelines above contain Chinese headers or requirements, translate them into English in your output report."""
+    else:
+        return f"""请仔细阅读提供的PDF所有页面内容，并直接按照以下需求汇总要求，为这篇论文生成一份深度的学术解析报告（使用Markdown格式）。
 
 【需求汇总（来自 {prompt_name}.md）】：
 {p1}

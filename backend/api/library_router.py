@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 import os
 import shutil
 import json
@@ -21,7 +22,7 @@ def get_db():
 @router.get("/folders")
 def get_folders(db: Session = Depends(get_db)):
     folders = db.query(Folder).all()
-    return [{"id": f.id, "name": f.name, "parent_id": f.parent_id, "is_system": f.is_system} for f in folders]
+    return [{"id": f.id, "name": f.name, "parent_id": f.parent_id, "is_system": f.is_system, "doc_count": db.query(Document).filter(Document.folder_id == f.id).count()} for f in folders]
 
 @router.post("/folders")
 def create_folder(name: str = Form(...), parent_id: Optional[int] = Form(None), db: Session = Depends(get_db)):
@@ -30,6 +31,46 @@ def create_folder(name: str = Form(...), parent_id: Optional[int] = Form(None), 
     db.commit()
     db.refresh(folder)
     return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id}
+
+class FolderRenameRequest(BaseModel):
+    name: str
+
+class MoveDocumentRequest(BaseModel):
+    folder_id: Optional[int] = None
+
+@router.delete("/folders/{folder_id}")
+def delete_folder(folder_id: int, db: Session = Depends(get_db)):
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    db.query(Document).filter(Document.folder_id == folder_id).update({"folder_id": None})
+    db.delete(folder)
+    db.commit()
+    return {"status": "success"}
+
+@router.put("/folders/{folder_id}")
+def rename_folder(folder_id: int, req: FolderRenameRequest, db: Session = Depends(get_db)):
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    folder.name = req.name
+    db.commit()
+    db.refresh(folder)
+    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id}
+
+@router.put("/documents/{doc_id}/move")
+def move_document(doc_id: int, req: MoveDocumentRequest, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if req.folder_id is not None:
+        folder = db.query(Folder).filter(Folder.id == req.folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+    doc.folder_id = req.folder_id
+    db.commit()
+    db.refresh(doc)
+    return {"status": "success", "id": doc.id, "folder_id": doc.folder_id}
 
 @router.get("/documents")
 def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db: Session = Depends(get_db)):
@@ -66,7 +107,7 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
 from backend.services.file_manager import handle_upload_file as old_handle_upload_file
 from backend.services.task_runner import active_tasks, async_run_builder
 
-@router.post("/api/library/upload")
+@router.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...), 
@@ -75,6 +116,7 @@ async def upload_document(
     item_type: str = Form("paper"),
     prompt_type: str = Form("提示词汇总"),
     ppt_mode: str = Form("creative"),
+    ppt_lang: str = Form("zh"),
     db: Session = Depends(get_db)
 ):
     # Determine folder
@@ -109,7 +151,7 @@ async def upload_document(
     if task_id not in active_tasks:
         active_tasks.add(task_id)
         if item_type == "paper":
-            background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode)
+            background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode, ppt_lang)
         else:
             background_tasks.add_task(async_run_builder, pdf_path, book_name, "book")
             
@@ -132,8 +174,10 @@ async def upload_document(
                 doc_to_update.jcr_partition = analysis.get("jcr_partition", "")
                 doc_to_update.ccf_partition = analysis.get("ccf_partition", "")
                 doc_to_update.core_type = analysis.get("core_type", "")
-                doc_to_update.research_field = analysis.get("research_field", "")
-                doc_to_update.research_direction = analysis.get("research_direction", "")
+                f_val = analysis.get("research_field", "")
+                doc_to_update.research_field = json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val)
+                d_val = analysis.get("research_direction", "")
+                doc_to_update.research_direction = json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val)
                 doc_to_update.abstract = analysis.get("abstract", "")
                 doc_to_update.en_abstract = analysis.get("en_abstract", "")
                 doc_to_update.en_keywords = json.dumps(analysis.get("en_keywords", []), ensure_ascii=False)
@@ -201,6 +245,7 @@ import re
 class UniversalSearchRequest(BaseModel):
     message: str
     chat_history: list
+    lang: str = "zh"
 
 def extract_json(text: str):
     try:
@@ -228,46 +273,64 @@ def extract_json(text: str):
 
 @router.post("/universal_search")
 def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db)):
-    # 1. Fetch catalog
+    # 1. Build a COMPACT catalog string (saves ~70% tokens vs JSON)
     docs = db.query(Document).all()
-    catalog = []
+    catalog_lines = []
+    doc_lookup = {}  # id -> doc for later
     for d in docs:
+        doc_lookup[d.id] = d
         tags = [t.name for t in d.tags if t.category == 'Keywords']
-        catalog.append({
-            "id": d.id,
-            "title": d.title,
-            "zh_title": d.zh_title,
-            "venue": d.venue,
-            "keywords": tags,
-            # Limit abstract length to save tokens
-            "abstract_snippet": d.abstract[:150] if d.abstract else ""
-        })
+        tags_str = ",".join(tags[:5]) if tags else ""
+        # Compact single-line format: ID | title | zh_title | venue | keywords | abstract_snippet
+        abstract_snip = (d.abstract or "")[:80].replace("\n", " ")
+        line = f"[{d.id}] {d.title}"
+        if d.zh_title:
+            line += f" ({d.zh_title})"
+        if d.venue and d.venue != "Unknown":
+            line += f" @{d.venue}"
+        if tags_str:
+            line += f" #{tags_str}"
+        if abstract_snip:
+            line += f" | {abstract_snip}"
+        catalog_lines.append(line)
     
-    catalog_str = json.dumps(catalog, ensure_ascii=False)
+    catalog_str = "\n".join(catalog_lines)
     
-    sys_prompt = f"""你是一个专业的学术文献推荐助理，你需要帮助用户检索本地文献知识库。
-当前知识库中的所有文献概览如下（包含文献ID、标题、期刊和摘要片段）：
+    if req.lang == 'en':
+        sys_prompt = f"""You are an academic literature recommendation assistant. Based on the user's query, recommend the most relevant documents from the knowledge base.
+
+[Document Catalog]
 {catalog_str}
 
-你的任务是理解用户的需求，推荐知识库中最相关的文献。
+[Tool Usage]
+To view a document's details, call search_paper_knowledge_base.
 
-【重要规则：如何使用工具】
-如果你觉得仅仅看概览无法确定，你必须**直接调用** `search_paper_knowledge_base` 工具，通过文献ID深入搜索该文献的具体内容。
-**绝对不要**在最终回复中说“让我去检索一下”或“我马上为您查找”之类的话而不实际调用工具！只要你需要看内容，就立刻调用工具。
-
-【重要规则：如何输出最终结果】
-当你完成了所有检索，准备给出最终的推荐结果时，你必须输出**且仅输出**一段 Markdown 格式的 JSON，包含：
+[Output Format]
+After searching, output JSON:
 ```json
-{{
-  "reply": "你的对话回复（用中文），详细向用户解释你为什么推荐这些文献，总结它们的亮点。请务必是一段完整的回复！",
-  "document_ids": [1, 2, 3]
-}}
+{{"reply": "Brief English recommendation (max 300 words)", "document_ids": [1, 2]}}
 ```
-- 如果找不到相关的，请在 reply 中如实告知，并将 document_ids 设为空列表 []。
-"""
+If nothing found, set document_ids to empty list."""
+    else:
+        sys_prompt = f"""你是学术文献推荐助理。根据用户需求，从知识库中推荐最相关的文献。
+
+【知识库文献列表】
+{catalog_str}
+
+【工具使用】
+如需查看某文献的详细内容，调用 search_paper_knowledge_base 工具。
+
+【输出格式】
+完成检索后，输出JSON：
+```json
+{{"reply": "中文推荐说明（简明扰要）", "document_ids": [1, 2]}}
+```
+找不到就 document_ids 设空列表。reply 务必简洁，不超过300字。"""
     
     messages = [{"role": "system", "content": sys_prompt}]
-    for hist in req.chat_history:
+    # Only keep last 4 turns of chat history to save context
+    recent_history = req.chat_history[-4:] if len(req.chat_history) > 4 else req.chat_history
+    for hist in recent_history:
         messages.append({"role": hist["role"], "content": hist["content"]})
     messages.append({"role": "user", "content": req.message})
     
@@ -276,17 +339,17 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
             "type": "function",
             "function": {
                 "name": "search_paper_knowledge_base",
-                "description": "如果单凭摘要无法判断，调用此工具深入检索特定文献的内容。你可以通过它查看论文的方法、作者单位等详细信息。",
+                "description": "深入检索特定文献的详细内容（方法、结论等）",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "document_id": {
                             "type": "integer",
-                            "description": "要深入检索的文献ID"
+                            "description": "文献ID"
                         },
                         "query": {
                             "type": "string",
-                            "description": "检索的关键词或具体问题（如：作者单位是什么？方法细节是什么？）"
+                            "description": "检索关键词"
                         }
                     },
                     "required": ["document_id", "query"]
@@ -296,26 +359,30 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
     ]
     
     cfg = load_config()
-    # 增加超时时间到10分钟(600秒)，防止长回复时连接中断
-    client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"], timeout=600.0)
+    client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"], timeout=300.0)
     model = cfg.get("chat_model", "Qwen/Qwen2.5-72B-Instruct")
     
-    # Loop for agentic behavior
-    for _ in range(5):  # Max 5 iterations
+    # Collect tool results across iterations for a summarized re-injection
+    tool_results_summary = []
+    
+    # Loop for agentic behavior — max 3 iterations (reduced from 5)
+    for iteration in range(3):
         try:
+            # On the final possible iteration, drop tools to force a text response
+            current_tools = tools if iteration < 2 else None
+            
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=tools,
-                # 去除 response_format={"type": "json_object"}，因为它会严重干扰 Qwen 的工具调用逻辑
-                max_tokens=8192,
+                tools=current_tools,
+                max_tokens=4096,
                 temperature=0.5
             )
             
             message = response.choices[0].message
             
             if message.tool_calls:
-                # Need to include the assistant message before the tool responses
+                # Process tool calls
                 assistant_msg = {
                     "role": "assistant",
                     "content": message.content or "",
@@ -345,13 +412,17 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
                                 item_info = get_item_by_name(name_without_ext)
                                 if item_info and item_info["kb_path"]:
                                     rag_result = simple_rag_search(item_info["kb_path"], query)
-                                    tool_result = rag_result if rag_result else "未找到相关信息。"
+                                    # TRUNCATE tool result to prevent context overflow
+                                    tool_result = (rag_result[:800] + "...") if rag_result and len(rag_result) > 800 else (rag_result or "未找到相关信息。")
                                 else:
                                     tool_result = "该文献暂无深度知识库文件。"
                             else:
                                 tool_result = "未找到该文献。"
                         except Exception as e:
                             tool_result = f"工具执行出错: {str(e)}"
+                        
+                        # Save summary for potential context rebuild
+                        tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:300]}")
                             
                         messages.append({
                             "role": "tool",
@@ -359,64 +430,68 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
                             "name": tool_call.function.name,
                             "content": tool_result
                         })
-                # Continue loop to send tool results back to LLM
+                
+                # CONTEXT MANAGEMENT: If messages are getting too long, rebuild with summary
+                total_content_len = sum(len(str(m.get("content", ""))) for m in messages)
+                if total_content_len > 12000:
+                    # Rebuild messages: keep system + user question + summarized tool results
+                    summary = "\n".join(tool_results_summary)
+                    messages = [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": f"{req.message}\n\n【已检索到的信息摘要】\n{summary}\n\n请根据以上信息直接给出推荐结果JSON。"}
+                    ]
+                
                 continue
             
-            # If no tool calls, this is the final response
+            # Final response — no tool calls
             content = message.content or ""
             
-            # Log the raw response for debugging
             with open("data/search_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"--- RAW RESPONSE ---\n{content}\n")
+                f.write(f"--- RAW RESPONSE (iter {iteration}) ---\n{content[:500]}\n")
                 
             parsed = extract_json(content)
             
-            # Intercept hallucinatory tool calls put directly into content
+            # Intercept hallucinatory tool calls in content
             if parsed and "name" in parsed and "arguments" in parsed and parsed.get("name") == "search_paper_knowledge_base":
                 try:
                     tool_args = parsed.get("arguments", {})
                     if isinstance(tool_args, str):
                         tool_args = json.loads(tool_args)
-                        
                     doc_id = tool_args.get("document_id")
                     query = tool_args.get("query", "")
-                    
                     doc = db.query(Document).filter(Document.id == doc_id).first()
                     if doc:
                         name_without_ext = doc.original_filename.replace('.pdf', '')
                         item_info = get_item_by_name(name_without_ext)
                         if item_info and item_info["kb_path"]:
                             rag_result = simple_rag_search(item_info["kb_path"], query)
-                            tool_result = rag_result if rag_result else "未找到相关信息。"
+                            tool_result = (rag_result[:800] + "...") if rag_result and len(rag_result) > 800 else (rag_result or "未找到相关信息。")
                         else:
                             tool_result = "该文献暂无深度知识库文件。"
                     else:
                         tool_result = "未找到该文献。"
                 except Exception as e:
                     tool_result = f"工具执行出错: {str(e)}"
-                    
-                messages.append({
-                    "role": "assistant",
-                    "content": content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"工具调用结果：\n{tool_result}\n\n请根据上述工具返回的内容，必须输出包含 'reply' 和 'document_ids' 的标准JSON格式。"
-                })
+                
+                tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:300]}")
+                # Rebuild with summary to force final answer
+                summary = "\n".join(tool_results_summary)
+                messages = [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": f"{req.message}\n\n【已检索到的信息摘要】\n{summary}\n\n请直接输出JSON结果。"}
+                ]
                 continue
 
             if parsed and "reply" in parsed:
                 reply = parsed.get("reply")
                 doc_ids = parsed.get("document_ids", [])
             else:
-                # Fallback if the model didn't output the expected format
                 reply = content
                 doc_ids = []
             
             # Fetch full documents
             final_docs = []
             if doc_ids and isinstance(doc_ids, list):
-                # Ensure ids are integers
                 doc_ids = [int(i) for i in doc_ids if str(i).isdigit() or isinstance(i, int)]
                 if doc_ids:
                     docs = db.query(Document).filter(Document.id.in_(doc_ids)).all()

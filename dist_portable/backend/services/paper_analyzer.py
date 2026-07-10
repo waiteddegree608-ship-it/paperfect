@@ -198,8 +198,8 @@ def analyze_paper(pdf_path: str):
         7. Extract the publication venue (journal or conference name, e.g. "IEEE Transactions...", "CVPR 2023", "Nature") as `venue`. Do not include the year, just the name. 
            CRITICAL: If Prior Knowledge provides a venue, use it! If no Prior Knowledge is provided and you must extract it from the text, DO NOT guess "arxiv" unless the text EXPLICITLY says "arXiv" or "Preprint". If you are unsure or cannot find a clear journal/conference name, MUST output "Unknown".
         8. Based on the abstract and title, determine if the paper is a review paper or a research paper. Output "综述" or "研究" in `paper_type`.
-        9. Determine the macro research field (e.g. "计算机视觉", "自然语言处理", "材料科学") as `research_field`.
-        10. Determine the specific research direction (e.g. "3D服装生成", "大语言模型微调") as `research_direction`.
+        9. Determine the macro research field as a JSON object with "zh" (Simplified Chinese) and "en" (English) keys (e.g. {{"zh": "计算机视觉", "en": "Computer Vision"}}).
+        10. Determine the specific research direction as a JSON object with "zh" (Simplified Chinese) and "en" (English) keys (e.g. {{"zh": "3D服装生成", "en": "3D Garment Generation"}}).
         
         Output ONLY raw JSON format (do not use markdown blocks like ```json). It must parse successfully using json.loads().
         
@@ -212,8 +212,8 @@ def analyze_paper(pdf_path: str):
             "abstract": "论文的中文摘要内容",
             "en_keywords": ["keyword1", "keyword2"],
             "zh_keywords": ["中文关键词1", "中文关键词2"],
-            "research_field": "宏观研究领域",
-            "research_direction": "微观研究方向"
+            "research_field": {{"zh": "宏观研究领域", "en": "Macro research field"}},
+            "research_direction": {{"zh": "微观研究方向", "en": "Micro research direction"}}
         }}
         
         Text:

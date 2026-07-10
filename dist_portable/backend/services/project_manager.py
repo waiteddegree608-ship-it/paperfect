@@ -18,6 +18,9 @@ class ProjectManager:
         img_dir = os.path.join(proj_dir, "images")
         os.makedirs(img_dir, exist_ok=True)
         
+        import json
+        metadata = {}
+        
         doc = fitz.open(pdf_path)
         try:
             # Match Figure X or Fig. X at the beginning of the text
@@ -118,8 +121,16 @@ class ProjectManager:
                         # Only save to images directory
                         img_path = os.path.join(img_dir, filename)
                         pix_crop.save(img_path)
+                        
+                        metadata[filename] = page_index + 1
                     
                         print(f"[ProjectManager] Extracted SMART layout figure {filename} on page {page_index+1} (Size: {pix_crop.width}x{pix_crop.height})")
+            
+            # Save figures metadata
+            meta_path = os.path.join(img_dir, "figures_metadata.json")
+            with open(meta_path, "w", encoding="utf-8") as f_meta:
+                json.dump(metadata, f_meta, indent=2, ensure_ascii=False)
+            print(f"[ProjectManager] Saved figures metadata to {meta_path}")
                         
         finally:
             # release file lock

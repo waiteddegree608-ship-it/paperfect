@@ -8,127 +8,146 @@
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; height: 100vh;
-            background: #ffffff;
+            background: #0e0f14;
             font-family: 'Inter', -apple-system, sans-serif;
-            color: #1a1b1e;
+            color: #e0e0e6;
             overflow: hidden;
         }
 
-        /* 顶部工具栏 (模拟 pptx-main 的沉浸式顶部) */
+        /* 顶部工具栏 */
         .toolbar {
-            height: 56px;
-            background: #ffffff;
-            border-bottom: 1px solid #e9ecef;
+            height: 48px;
+            max-height: 48px;
+            background: #14151c;
+            border-bottom: 1px solid #2a2b36;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 24px;
+            padding: 0 16px;
             flex-shrink: 0;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            gap: 8px;
         }
         .toolbar-title {
             font-weight: 600;
-            font-size: 16px;
+            font-size: 14px;
             display: flex;
             align-items: center;
-            gap: 12px;
-            color: #2c2e33;
+            gap: 10px;
+            color: #e0e0e6;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .logo {
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 13px;
+            background: #6E88BD;
+            color: #fff;
+            padding: 3px 7px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }
         .toolbar-actions {
             display: flex;
-            gap: 12px;
+            gap: 8px;
+            flex-shrink: 0;
         }
         .btn {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            padding: 8px 16px;
-            border-radius: 8px;
+            background: #1e1f2a;
+            border: 1px solid #2a2b36;
+            padding: 6px 12px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            color: #495057;
-            transition: 0.2s;
+            color: #e0e0e6;
+            transition: background 0.15s, border-color 0.15s;
             display: flex;
             align-items: center;
             gap: 6px;
+            white-space: nowrap;
         }
-        .btn:hover { background: #e9ecef; }
+        .btn:hover { background: #2a2b36; border-color: #3a3b46; }
         .btn-primary {
-            background: #3b82f6;
-            border-color: #3b82f6;
-            color: white;
+            background: #6E88BD;
+            border-color: #6E88BD;
+            color: #fff;
         }
-        .btn-primary:hover { background: #2563eb; }
+        .btn-primary:hover { background: #5d77a8; border-color: #5d77a8; }
+        .btn-danger {
+            background: #DF5953;
+            border-color: #DF5953;
+            color: #fff;
+        }
+        .btn-danger:hover { background: #c94d47; border-color: #c94d47; }
 
         .editor-container {
             display: flex;
             flex: 1;
             overflow: hidden;
-            background: #f1f3f5;
+            background: #0e0f14;
         }
 
-        /* 左侧侧边栏：幻灯片大纲导航 */
+        /* 左侧侧边栏 */
         .sidebar {
-            width: 240px;
-            background: #ffffff;
-            border-right: 1px solid #e9ecef;
+            width: 220px;
+            background: #1a1b24;
+            border-right: 1px solid #2a2b36;
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
         }
         .sidebar-header {
-            padding: 15px;
-            font-size: 13px;
+            padding: 14px 15px;
+            font-size: 12px;
             font-weight: 600;
-            color: #868e96;
-            border-bottom: 1px solid #e9ecef;
+            color: #8b8d98;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #2a2b36;
         }
         .slide-list {
             flex: 1;
             overflow-y: auto;
-            padding: 15px;
+            padding: 12px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 10px;
         }
         .slide-thumb {
             aspect-ratio: 16/9;
-            background: #f8f9fa;
-            border: 2px solid transparent;
-            border-radius: 8px;
+            background: #14151c;
+            border: 2px solid #2a2b36;
+            border-radius: 6px;
             cursor: pointer;
             overflow: hidden;
             position: relative;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            transition: 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
+        .slide-thumb:hover { border-color: #3a3b46; }
         .slide-thumb img { width: 100%; height: 100%; object-fit: contain; }
-        .slide-thumb.active { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+        .slide-thumb.active { border-color: #6E88BD; box-shadow: 0 0 0 1px #6E88BD, 0 4px 12px rgba(110, 136, 189, 0.15); }
         .slide-num {
-            position: absolute; top: 6px; left: 6px;
-            background: rgba(0,0,0,0.5); color: white;
-            font-size: 11px; padding: 2px 6px; border-radius: 4px;
+            position: absolute; top: 4px; left: 4px;
+            background: rgba(0,0,0,0.6); color: #e0e0e6;
+            font-size: 10px; padding: 1px 5px; border-radius: 3px;
         }
 
-        /* 中间无边界画布区域 */
+        /* 中间画布区域 */
         .canvas-area {
             flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 40px;
+            padding: 30px;
             overflow: auto;
+            background: #0e0f14;
         }
         .canvas-wrapper {
             background: #ffffff;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
             border-radius: 4px;
             max-width: 100%;
             max-height: 100%;
@@ -145,7 +164,7 @@
 
         /* 骨架屏加载动画 */
         .skeleton {
-            background: linear-gradient(90deg, #f1f3f5 25%, #e9ecef 50%, #f1f3f5 75%);
+            background: linear-gradient(90deg, #1a1b24 25%, #22232e 50%, #1a1b24 75%);
             background-size: 200% 100%;
             animation: loading 1.5s infinite;
         }
@@ -154,72 +173,75 @@
             100% { background-position: -200% 0; }
         }
 
-        /* 右侧属性面板 (文本重构) */
+        /* 右侧属性面板 */
         .property-panel {
             width: 320px;
-            background: #ffffff;
-            border-left: 1px solid #e9ecef;
+            background: #1a1b24;
+            border-left: 1px solid #2a2b36;
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
-            box-shadow: -4px 0 15px rgba(0,0,0,0.02);
         }
         .panel-header {
-            padding: 16px 20px;
-            font-size: 14px;
+            padding: 14px 18px;
+            font-size: 13px;
             font-weight: 600;
-            border-bottom: 1px solid #e9ecef;
+            color: #e0e0e6;
+            border-bottom: 1px solid #2a2b36;
             display: flex; justify-content: space-between; align-items: center;
         }
         .panel-content {
             flex: 1;
-            padding: 20px;
+            padding: 16px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
         }
         .shape-block {
             display: flex; flex-direction: column; gap: 8px;
-            border: 1px solid #e9ecef;
+            border: 1px solid #2a2b36;
             padding: 12px;
-            border-radius: 8px;
-            background: #f8f9fa;
+            border-radius: 6px;
+            background: #14151c;
         }
         .shape-label {
-            font-size: 12px;
-            color: #868e96;
+            font-size: 11px;
+            color: #8b8d98;
             font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
         .shape-editor {
             width: 100%;
-            border: 1px solid #dee2e6;
-            border-radius: 6px;
+            border: 1px solid #2a2b36;
+            border-radius: 4px;
             padding: 10px;
-            font-size: 14px;
+            font-size: 13px;
             font-family: inherit;
             resize: vertical;
             min-height: 40px;
             box-sizing: border-box;
-            background: #fff;
-            transition: 0.2s;
+            background: #1e1f2a;
+            color: #e0e0e6;
+            transition: border-color 0.15s;
         }
         .shape-editor:focus {
             outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            border-color: #6E88BD;
+            box-shadow: 0 0 0 2px rgba(110, 136, 189, 0.15);
         }
 
         /* 自定义滚动条 */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #ced4da; }
-        
+        ::-webkit-scrollbar-thumb { background: #2a2b36; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3b46; }
+
         .loading-overlay {
-            position: absolute; inset: 0; background: rgba(255,255,255,0.8);
+            position: absolute; inset: 0; background: rgba(14, 15, 20, 0.85);
             display: flex; align-items: center; justify-content: center;
-            font-weight: 600; font-size: 18px; color: #3b82f6; backdrop-filter: blur(2px);
+            font-weight: 600; font-size: 16px; color: #6E88BD; backdrop-filter: blur(2px);
             z-index: 100;
         }
     </style>
@@ -261,10 +283,10 @@
         <div class="property-panel">
             <div class="panel-header">
                 内容重构面板
-                <span id="current-slide-label" style="font-size: 12px; color: #868e96;">--</span>
+                <span id="current-slide-label" style="font-size: 12px; color: #8b8d98;">--</span>
             </div>
             <div class="panel-content" id="property-list">
-                <div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">
+                <div style="color: #8b8d98; font-size: 13px; text-align: center; margin-top: 40px;">
                     请先在左侧选择一页需要编辑的幻灯片
                 </div>
             </div>
@@ -280,7 +302,7 @@
             document.getElementById("canvas-wrapper").classList.add("skeleton");
             document.getElementById("main-canvas-img").style.display = "none";
             document.getElementById("slide-list").innerHTML = "";
-            document.getElementById("property-list").innerHTML = `<div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">正在解析底层 PPTX 文档...</div>`;
+            document.getElementById("property-list").innerHTML = `<div style="color: #8b8d98; font-size: 13px; text-align: center; margin-top: 40px;">正在解析底层 PPTX 文档...</div>`;
             
             try {
                 const res = await fetch(`/api/ppt/data/${encodeURIComponent(bookName)}`);
@@ -339,7 +361,7 @@
             
             const shapes = pptData[idx].shapes;
             if (shapes.length === 0) {
-                propContainer.innerHTML = `<div style="color: #adb5bd; font-size: 13px; text-align: center; margin-top: 40px;">本页没有提取到可编辑文本块</div>`;
+                propContainer.innerHTML = `<div style="color: #8b8d98; font-size: 13px; text-align: center; margin-top: 40px;">本页没有提取到可编辑文本块</div>`;
                 return;
             }
 

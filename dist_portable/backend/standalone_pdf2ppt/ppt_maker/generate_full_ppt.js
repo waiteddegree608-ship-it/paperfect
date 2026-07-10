@@ -16,15 +16,52 @@ const outputPath = path.resolve(args[2]);
 const MODE = args[3] || 'simple'; 
 const apiKey = args[4];
 const modelName = args[5] || 'Qwen/Qwen2.5-72B-Instruct';
+const customBaseURL = args[6] || 'https://api.siliconflow.cn/v1';
+const pptLang = args[7] || 'zh';
+const isEn = pptLang === 'en';
 
 const client = new OpenAI({
   apiKey: apiKey,
-  baseURL: "https://api.siliconflow.cn/v1"
+  baseURL: customBaseURL
 });
+
+const is_deepseek = modelName.toLowerCase().includes("deepseek") || customBaseURL.toLowerCase().includes("deepseek");
+
 
 async function generateGlobalSlides(mdContent) {
     console.log("\n[Agent] -> Generating global slides (Title, TOC, Summary, Ending)...");
-    const prompt = `
+    const prompt = isEn ? `
+You are an expert AI academic presenter. Your task is to extract high-level information from the provided academic paper text to generate structural presentation slides.
+Provide the content for:
+1. A Title Slide (Paper title, authors or general presentation context)
+2. A Table of Contents (TOC) Slide
+3. A Summary/Conclusion Slide
+4. An Ending Slide
+
+Context (Academic Analysis Report):
+<<<
+${mdContent}
+>>>
+
+Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks). Please use ENGLISH for all content:
+{
+  "cover": {
+    "title": "Paper Title",
+    "subtitle": "Subtitle/Authors/Venue"
+  },
+  "toc": {
+    "title": "Table of Contents",
+    "items": ["1. Introduction", "2. Related Work", "3. Methodology", "4. Experiments", "5. Conclusion"]
+  },
+  "summary": {
+    "title": "Summary & Conclusion",
+    "bullet_points": ["Core Contribution 1...", "Core Contribution 2...", "Future Work..."]
+  },
+  "ending": {
+    "text": "Thank you!"
+  }
+}
+` : `
 You are an expert AI academic presenter. Your task is to extract high-level information from the provided academic paper text to generate structural presentation slides.
 Provide the content for:
 1. A Title Slide (Paper title, authors or general presentation context)
@@ -55,7 +92,7 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks).
     "text": "谢谢聆听"
   }
 }
-    `;
+`;
 
     try {
         const response = await client.chat.completions.create({
@@ -79,9 +116,9 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks).
         console.error("   ! Error generating global slides:", e.message);
         return { // Fallback
             cover: { title: "Paper Presentation", subtitle: "" },
-            toc: { title: "目录", items: ["引言", "主体", "总结"] },
-            summary: { title: "总结", bullet_points: ["本文提出了一种新方案..."] },
-            ending: { text: "谢谢聆听 Q&A" }
+            toc: { title: isEn ? "Table of Contents" : "目录", items: isEn ? ["Introduction", "Main Body", "Conclusion"] : ["引言", "主体", "总结"] },
+            summary: { title: isEn ? "Summary & Conclusion" : "总结", bullet_points: isEn ? ["This paper proposes a new method..."] : ["本文提出了一种新方案..."] },
+            ending: { text: isEn ? "Thank you" : "谢谢聆听 Q&A" }
         };
     }
 }
@@ -101,8 +138,8 @@ async function processImage(imageName, mdContent) {
     const SLIDE_WIDTH = 1280;
     const SLIDE_HEIGHT = 720;
     const MAX_W = 1000;
-    // Allow max height to be 400 to make room for Title + Overall explanation + Annotations
-    const MAX_H = 400;
+    // Allow max height to be 300 to make room for Title + Overall explanation + Annotations (prevent bottom overflow)
+    const MAX_H = 300;
     
     if (imgW > MAX_W || imgH > MAX_H) {
         const ratioMax = MAX_W / MAX_H;
@@ -115,8 +152,8 @@ async function processImage(imageName, mdContent) {
     // Anchor top down 80px to leave room for Title
     const imgY = 80;
 
-    const prompt = `
-You are an expert AI academic presenter. Your task is to explain the provided image from the scientific paper to an audience.
+    const prompt = isEn ? `
+You are an expert AI academic presenter. Your task is to explain the provided image from the scientific paper to an audience by identifying and annotating its logical sub-components (such as sub-figures labeled with letters like 'a', 'b', 'c', 'd', 'e', or charts, tables, specific panels).
 
 Important Context (Academic Analysis Report):
 <<<
@@ -124,24 +161,72 @@ ${mdContent}
 >>>
 
 Important Image Rules for Annotations:
-Imagine a coordinate system over the provided image where X goes from 0 (left edge) to 1000 (right edge), and Y goes from 0 (top edge) to 1000 (bottom edge of the image).
+Imagine a coordinate system over the provided image where X goes from 0.00 (left edge) to 1.00 (right edge), and Y goes from 0.00 (top edge) to 1.00 (bottom edge of the image).
 
 Instructions:
-1. Provide a "slide_title" in CHINESE summarizing the image's role or content.
-2. Provide a brief "overall_explanation" of the image's role (1-3 sentences in CHINESE).
-3. Identify 0 to 5 key features/modules in this image to highlight. Provide "targetX" as a rough horizontal float ratio between 0.00 (left) and 1.00 (right) indicating its relative order in the image.
+1. Provide a "slide_title" in ENGLISH summarizing the image's role or content.
+2. Provide a brief "overall_explanation" of the image's role (1-3 sentences in ENGLISH, strictly under 40 words).
+3. Identify 2 to 6 specific sub-figures or logical components (e.g. sub-figures 'a', 'b', 'c', 'd', 'e') visible in this image to highlight. For each identified sub-figure/component:
+   - Provide "targetX": the exact horizontal center ratio (0.00 to 1.00) of this sub-figure/component.
+   - Provide "targetY": the exact vertical center ratio (0.00 to 1.00) of this sub-figure/component.
+   - Provide "description": A highly specific, detail-oriented, region-bound description explaining exactly what is shown inside this sub-figure/component (e.g. what kind of painting, prompt, baseline, score, or structure is displayed), referencing its label (e.g. "sub-figure a", "sub-figure b") if present. IMPORTANT: Keep each description concise and strictly under 45 words to prevent layout overflow!
 4. "follow_up_slides": ${MODE === 'creative' 
     ? "BE CREATIVE! If this image introduces a complex mathematical mechanism, generate one or more follow-up text slides to dive deeper. IMPORTANT: Do NOT use LaTeX tags or symbols that render badly (like \\\\hat{}, \\\\frac{}, \\\\sqrt{}, or $$). PPT uses plain text text-boxes. You MUST use plain English/characters for math (e.g., use E_t' instead of \\\\hat{E}_t, use alpha instead of \\\\alpha) and simple inline operators (like A / B, L_total = L_adv) so formulas look flawless in plain text."
     : "Empty array. DO NOT generate ANY follow-up slides."}
 
 Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
 {
-  "slide_title": "图像编辑效果对比",
-  "overall_explanation": "本图展示了本文提出的FashionTex在...",
+  "slide_title": "InkIdeator Comparison with Baseline Systems",
+  "overall_explanation": "This figure displays the visual design results of InkIdeator compared to baseline systems...",
   "annotations": [
     {
-      "targetX": 0.25,
-      "description": "投影模块: ..."
+      "targetX": 0.15,
+      "targetY": 0.25,
+      "description": "Sub-figure a (Canary, Haystack): Shows the comparison, where InkIdeator exhibits better details..."
+    }
+  ],
+  "follow_up_slides": ${MODE === 'creative' ? `[
+    {
+      "slide_title": "Deep Dive: Core Loss Computation",
+      "bullet_points": [
+        "The overall loss consists of several components",
+        "L_total = L_adv + lambda * L_L1",
+        "The adversarial loss helps reduce visual artifacts..."
+      ]
+    }
+  ]` : `[]`}
+}
+` : `
+You are an expert AI academic presenter. Your task is to explain the provided image from the scientific paper to an audience by identifying and annotating its logical sub-components (such as sub-figures labeled with letters like 'a', 'b', 'c', 'd', 'e', or charts, tables, specific panels).
+
+Important Context (Academic Analysis Report):
+<<<
+${mdContent}
+>>>
+
+Important Image Rules for Annotations:
+Imagine a coordinate system over the provided image where X goes from 0.00 (left edge) to 1.00 (right edge), and Y goes from 0.00 (top edge) to 1.00 (bottom edge of the image).
+
+Instructions:
+1. Provide a "slide_title" in CHINESE summarizing the image's role or content.
+2. Provide a brief "overall_explanation" of the image's role (1-3 sentences in CHINESE, strictly under 50 Chinese characters).
+3. Identify 2 to 6 specific sub-figures or logical components (e.g. sub-figures 'a', 'b', 'c', 'd', 'e') visible in this image to highlight. For each identified sub-figure/component:
+   - Provide "targetX": the exact horizontal center ratio (0.00 to 1.00) of this sub-figure/component.
+   - Provide "targetY": the exact vertical center ratio (0.00 to 1.00) of this sub-figure/component.
+   - Provide "description": A highly specific, detail-oriented, region-bound (图文结合) description explaining exactly what is shown inside this sub-figure/component (e.g. what kind of painting, prompt, baseline, score, or structure is displayed), referencing its label (e.g. "子图a", "子图b") if present. IMPORTANT: Keep each description concise and strictly under 60 Chinese characters (每条 description 必须极其简明，严格控制在 60 个汉字以内) to prevent layout overflow!
+4. "follow_up_slides": ${MODE === 'creative' 
+    ? "BE CREATIVE! If this image introduces a complex mathematical mechanism, generate one or more follow-up text slides to dive deeper. IMPORTANT: Do NOT use LaTeX tags or symbols that render badly (like \\\\hat{}, \\\\frac{}, \\\\sqrt{}, or $$). PPT uses plain text text-boxes. You MUST use plain English/characters for math (e.g., use E_t' instead of \\\\hat{E}_t, use alpha instead of \\\\alpha) and simple inline operators (like A / B, L_total = L_adv) so formulas look flawless in plain text."
+    : "Empty array. DO NOT generate ANY follow-up slides."}
+
+Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
+{
+  "slide_title": "InkIdeator与基线系统生成图像对比及评估",
+  "overall_explanation": "本图展示了InkIdeator系统与基线系统根据相同提示词生成的中国风格绘画作品...",
+  "annotations": [
+    {
+      "targetX": 0.15,
+      "targetY": 0.25,
+      "description": "子图a (Canary, Haystack): 展示了InkIdeator和提示词的对应效果，可见生成作品在细节和意境上..."
     }
   ],
   "follow_up_slides": ${MODE === 'creative' ? `[
@@ -155,14 +240,72 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
     }
   ]` : `[]`}
 }
-    `;
+`;
 
-    const maxRetries = 3;
+    const maxRetries = 2;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            const response = await client.chat.completions.create({
-                model: modelName,
-                messages: [
+            let messages;
+            if (is_deepseek) {
+                const userContent = isEn ? `You are an expert AI academic presenter. We have extracted an image named "${imageName}" from the scientific paper.
+Since we are using a text-only model, please analyze the paper content and explain the role/meaning of this figure.
+
+Important Context (Academic Analysis Report):
+<<<
+${mdContent}
+>>>
+
+Instructions:
+1. Provide a "slide_title" in ENGLISH summarizing the image's role or content.
+2. Provide a brief "overall_explanation" of the image's role (1-3 sentences in ENGLISH).
+3. Identify 0 to 5 key features/modules in this image to highlight. Provide "targetX" as a rough horizontal float ratio between 0.00 (left) and 1.00 (right) indicating its relative order in the image.
+4. "follow_up_slides": BE CREATIVE! If this image introduces a complex mathematical mechanism, generate one or more follow-up text slides to dive deeper. IMPORTANT: Do NOT use LaTeX tags or symbols that render badly. Use plain English/characters for math.
+
+Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
+{
+  "slide_title": "Visual Result Comparison",
+  "overall_explanation": "This figure shows the comparison between...",
+  "annotations": [
+    {
+      "targetX": 0.25,
+      "description": "Projection Module: ..."
+    }
+  ],
+  "follow_up_slides": []
+}` : `You are an expert AI academic presenter. We have extracted an image named "${imageName}" from the scientific paper.
+Since we are using a text-only model, please analyze the paper content and explain the role/meaning of this figure.
+
+Important Context (Academic Analysis Report):
+<<<
+${mdContent}
+>>>
+
+Instructions:
+1. Provide a "slide_title" in CHINESE summarizing the image's role or content.
+2. Provide a brief "overall_explanation" of the image's role (1-3 sentences in CHINESE).
+3. Identify 0 to 5 key features/modules in this image to highlight. Provide "targetX" as a rough horizontal float ratio between 0.00 (left) and 1.00 (right) indicating its relative order in the image.
+4. "follow_up_slides": BE CREATIVE! If this image introduces a complex mathematical mechanism, generate one or more follow-up text slides to dive deeper. IMPORTANT: Do NOT use LaTeX tags or symbols that render badly. Use plain English/characters for math.
+
+Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
+{
+  "slide_title": "图像编辑效果对比",
+  "overall_explanation": "本图展示了本文提出的FashionTex在...",
+  "annotations": [
+    {
+      "targetX": 0.25,
+      "description": "投影模块: ..."
+    }
+  ],
+  "follow_up_slides": []
+}`;
+                messages = [
+                    {
+                        role: "user",
+                        content: userContent
+                    }
+                ];
+            } else {
+                messages = [
                     {
                         role: "user",
                         content: [
@@ -170,7 +313,12 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
                             { type: "text", text: prompt }
                         ]
                     }
-                ],
+                ];
+            }
+
+            const response = await client.chat.completions.create({
+                model: modelName,
+                messages: messages,
                 temperature: 0.2
             });
 
@@ -194,12 +342,16 @@ Return ONLY a valid JSON object matching this format (inside \`\`\`json blocks):
                 imageName, base64Data, imgW, imgH, imgX, imgY, ...parsed
             };
         } catch (e) {
-            console.error(`   ! Error processing ${imageName} (Attempt ${attempt}/${maxRetries}):`, e.message);
+            const errStr = String(e.message || e);
+            const isRateLimit = errStr.includes("429") || errStr.includes("limit") || errStr.includes("quota");
+            const sleepTime = isRateLimit ? 35000 : 8000;
+            console.error(`   ! Error processing ${imageName} (Attempt ${attempt}/${maxRetries}):`, errStr);
+            console.error(`   ! Sleeping for ${sleepTime / 1000}s before retry...`);
             if (attempt === maxRetries) {
                 console.error(`   ! Max retries reached for ${imageName}. Exiting.`);
                 process.exit(1);
             }
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, sleepTime));
         }
     }
 }
@@ -217,16 +369,40 @@ async function run() {
     
     console.log(`Found ${files.length} images: ${files.join(', ')}`);
     
-    // Generate global slides if in creative mode or if there are no images
-    let globalSlides = null;
-    if (MODE === 'creative' || files.length === 0) {
-        console.log("Generating semantic structure slides...");
-        globalSlides = await generateGlobalSlides(mdContent);
+    // Load ppt_cache.json if exists
+    const cachePath = path.join(path.dirname(outputPath), "ppt_cache.json");
+    let cache = {};
+    if (fs.existsSync(cachePath)) {
+        try {
+            cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+            console.log(`[Cache] Loaded ${Object.keys(cache).length} cached image analysis results.`);
+        } catch (e) {
+            console.warn("Failed to load cache:", e.message);
+        }
     }
+
+    // Page-to-PPT sync mode: We do not generate global semantic slides.
+    let globalSlides = null;
     const results = [];
     for (const file of files) {
-        const res = await processImage(file, mdContent);
+        let res;
+        if (cache[file]) {
+            console.log(`[Cache] -> Using cached analysis for ${file}`);
+            res = cache[file];
+        } else {
+            res = await processImage(file, mdContent);
+            if (res) {
+                cache[file] = res;
+                try {
+                    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
+                } catch (e) {
+                    console.warn("Failed to save cache:", e.message);
+                }
+            }
+        }
         if (res) results.push(res);
+        // Sleep for 6 seconds between images to prevent hitting 429 rate limit (strictly 10 RPM)
+        await new Promise(resolve => setTimeout(resolve, 6000));
     }
     
     console.log("\n2. Building full presentation...");
@@ -235,35 +411,6 @@ async function run() {
     const PX_TO_INCH = 128;
     const SLIDE_WIDTH = 1280;
     const SLIDE_HEIGHT = 720;
-    
-    if (globalSlides) {
-        // --- 1. COVER SLIDE ---
-        const coverSlide = pres.addSlide();
-        coverSlide.background = { color: 'FFFFFF' };
-        coverSlide.addText(globalSlides.cover.title || "Paper Title", {
-            x: 1, y: 2.2, w: 8, h: 1.5,
-            fontSize: 48, bold: true, color: '1E3A8A', align: 'center', valign: 'middle'
-        });
-        coverSlide.addText(globalSlides.cover.subtitle || "", {
-            x: 1, y: 3.8, w: 8, h: 1,
-            fontSize: 24, color: '475569', align: 'center', valign: 'top'
-        });
-
-        // --- 2. TOC SLIDE ---
-        const tocSlide = pres.addSlide();
-        tocSlide.background = { color: 'FFFFFF' };
-        tocSlide.addText(globalSlides.toc.title || "目录", {
-            x: 0.5, y: 0.5, w: 9, h: 0.8,
-            fontSize: 36, bold: true, color: '1E3A8A'
-        });
-        const tocItems = Array.isArray(globalSlides.toc.items) ? globalSlides.toc.items : [];
-        tocItems.forEach((item, idx) => {
-            tocSlide.addText(item, {
-                x: 1, y: 1.6 + idx * 0.7, w: 8, h: 0.6,
-                fontSize: 28, color: '333333'
-            });
-        });
-    }
 
     const cleanText = (str) => {
         if (!str) return str;
@@ -346,11 +493,9 @@ async function run() {
             const textY = explanationY + 60; 
             
             annotations.forEach((mod, i) => {
-                // FORCE MATHEMATICAL GRID FOR PERFECT VISUAL ALIGNMENT
-                // Ignore AI's hallucinated precise coordinates. Distribute evenly horizontally!
-                let tX = (i + 0.5) / N;
-                // Target the lower part of the image, slightly staggered for aesthetics
-                let tY = 0.65 + (i % 2 === 0 ? 0 : 0.1);
+                // Use AI's returned targetX and targetY with grid fallback
+                let tX = mod.targetX !== undefined ? parseFloat(mod.targetX) : (i + 0.5) / N;
+                let tY = mod.targetY !== undefined ? parseFloat(mod.targetY) : 0.5;
 
                 if (overrideMap && i < overrideMap.length) {
                     tX = overrideMap[i].tX;
@@ -368,7 +513,7 @@ async function run() {
                     y: textY / PX_TO_INCH,
                     w: Math.min(250, boxWidth) / PX_TO_INCH,
                     h: 0.5,
-                    fontSize: 12,
+                    fontSize: 10.5,
                     fontFace: 'Arial',
                     color: '000000',
                     bold: true,
@@ -412,58 +557,7 @@ async function run() {
                 });
             });
         }
-
-        // B. CREATIVE DEEP DIVE / FOLLOW UP SLIDES
-        const followUps = slideData.follow_up_slides || [];
-        followUps.forEach(fs => {
-            const fSlide = pres.addSlide();
-            fSlide.background = { color: 'F8FAFC' }; // Slightly different background for deep dive slides
-
-            fSlide.addText(fs.slide_title, {
-                x: 0.5, y: 0.5, w: 9, h: 0.8,
-                fontSize: 32, bold: true, color: '1E3A8A'
-            });
-
-            const bpList = Array.isArray(fs.bullet_points) ? fs.bullet_points : [];
-            if (bpList.length > 0) {
-                const bulletTexts = bpList.map(text => ({ text: cleanText(text), options: { bullet: true, color: '333333' } }));
-                fSlide.addText(bulletTexts, {
-                    x: 0.5, y: 1.5, w: 9.0, h: 4.0,
-                    fontSize: 18,
-                    valign: 'top',
-                    lineSpacing: 26,
-                    fit: 'shrink',
-                    breakLine: true
-                });
-            }
-        });
     });
-
-    if (globalSlides) {
-        // --- 4. SUMMARY SLIDE ---
-        const summarySlide = pres.addSlide();
-        summarySlide.background = { color: 'FFFFFF' };
-        summarySlide.addText(globalSlides.summary.title || "总结", {
-            x: 0.5, y: 0.5, w: 9, h: 0.8,
-            fontSize: 36, bold: true, color: '1E3A8A'
-        });
-        const sumBullets = Array.isArray(globalSlides.summary.bullet_points) ? globalSlides.summary.bullet_points : [];
-        if (sumBullets.length > 0) {
-            const sumBulletTexts = sumBullets.map(text => ({ text: text, options: { bullet: true } }));
-            summarySlide.addText(sumBulletTexts, {
-                x: 0.8, y: 1.6, w: 8.4, h: 3.8,
-                fontSize: 20, color: '333333', valign: 'top', lineSpacing: 28, fit: 'shrink'
-            });
-        }
-
-        // --- 5. ENDING SLIDE ---
-        const endSlide = pres.addSlide();
-        endSlide.background = { color: 'FFFFFF' };
-        endSlide.addText(globalSlides.ending.text || "谢谢聆听", {
-            x: 1, y: 2.5, w: 8, h: 1.5,
-            fontSize: 54, bold: true, color: '1E3A8A', align: 'center', valign: 'middle'
-        });
-    }
 
     await pres.writeFile({ fileName: outputPath });
     console.log("========================================");

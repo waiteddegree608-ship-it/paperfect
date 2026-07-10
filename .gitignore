@@ -54,3 +54,18 @@ venv.bak/
 *.swp
 *.swo
 .DS_Store
+
+# Databases
+*.db
+backend/database.db
+
+# ZIP files
+*.zip
+paperfect_portable.zip
+
+# Portable generated files
+dist_portable/data/
+dist_portable/_vendor/
+dist_portable/_wheels/
+dist_portable/frontend/ppt_editor/
+_test_pipeline/
