@@ -182,7 +182,7 @@ const App: React.FC = () => {
     });
   };
 
-  const switchSlide = (newIndex: number) => {
+  const switchSlide = (newIndex: number, preventReverseSync: boolean = false) => {
     if (newIndex < 0 || newIndex >= allSlides.length) return;
     saveCurrentSlide();
     setCurrentSlideIndex(newIndex);
@@ -194,6 +194,14 @@ const App: React.FC = () => {
           return prev;
        });
     }, 0);
+
+    // Broadcast the slide index change event to the parent
+    if (!preventReverseSync) {
+      window.parent.postMessage({
+        type: 'SLIDE_CHANGED_BY_USER',
+        slideIndex: newIndex
+      }, '*');
+    }
   };
 
   useEffect(() => {
@@ -201,7 +209,7 @@ const App: React.FC = () => {
       if (event.data && event.data.type === 'SELECT_SLIDE_BY_INDEX') {
         const index = parseInt(event.data.index, 10);
         if (!isNaN(index) && index >= 0 && index < allSlides.length && index !== currentSlideIndex) {
-          switchSlide(index);
+          switchSlide(index, true); // True to prevent reverse sync loop
         }
       }
     };
@@ -527,14 +535,20 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && 
-          document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
         deleteSelected();
+      } else if (e.key === 'ArrowLeft') {
+        switchSlide(currentSlideIndex - 1);
+      } else if (e.key === 'ArrowRight') {
+        switchSlide(currentSlideIndex + 1);
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [elements]);
+  }, [elements, currentSlideIndex, allSlides.length]);
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 font-sans p-4 gap-4 overflow-hidden">

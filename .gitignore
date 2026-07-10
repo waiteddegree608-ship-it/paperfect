@@ -69,3 +69,8 @@ dist_portable/_vendor/
 dist_portable/_wheels/
 dist_portable/frontend/ppt_editor/
 _test_pipeline/
+
+# Compiled installers
+Paperfect_Setup.exe
+*.exe
+

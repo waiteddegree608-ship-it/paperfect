@@ -87,8 +87,26 @@ def copy_source():
         ignore=ignore
     )
     
-    # Copy .env with real API keys
-    shutil.copy(os.path.join(BASE_DIR, ".env"), os.path.join(DIST_DIR, ".env"))
+    # Write a clean .env without real API keys
+    clean_env_content = (
+        "PARSE_API_URL='https://api.siliconflow.cn/v1'\n"
+        "PARSE_API_KEY=''\n"
+        "PARSE_MODEL='Qwen/Qwen2.5-72B-Instruct'\n"
+        "CHAT_API_URL='https://api.siliconflow.cn/v1'\n"
+        "CHAT_API_KEY=''\n"
+        "CHAT_MODEL='Qwen/Qwen2.5-72B-Instruct'\n"
+        "PAPER_API_URL='https://api.siliconflow.cn/v1'\n"
+        "PAPER_API_KEY=''\n"
+        "PAPER_MODEL='Qwen/Qwen2.5-72B-Instruct'\n"
+        "ANNOTATOR_API_URL='https://api.siliconflow.cn/v1'\n"
+        "ANNOTATOR_API_KEY=''\n"
+        "ANNOTATOR_MODEL='Qwen/Qwen2.5-72B-Instruct'\n"
+        "TRANSLATE_API_URL='https://api.siliconflow.cn/v1'\n"
+        "TRANSLATE_API_KEY=''\n"
+        "TRANSLATE_MODEL='Qwen/Qwen2.5-72B-Instruct'\n"
+    )
+    with open(os.path.join(DIST_DIR, ".env"), "w", encoding="utf-8") as env_f:
+        env_f.write(clean_env_content)
     
     # Copy essential data files (dictionaries for classification)
     data_dist = os.path.join(DIST_DIR, "data")
@@ -383,7 +401,7 @@ def create_readme():
 - 万能文献搜索
 
 ### 注意事项
-- API 密钥已内置在 .env 文件中，无需额外配置
+- API 密钥需要在解压/安装后的 .env 文件中进行配置，预设密钥已清空以防泄露。
 - 首次上传论文需要等待 AI 处理（约 1-2 分钟/篇）
 - 如需修改 API 配置，编辑 .env 文件即可
 
@@ -409,6 +427,52 @@ def make_zip():
     zip_size = os.path.getsize(zip_output + ".zip") / (1024*1024)
     print(f"  Archive created: paperfect_portable.zip ({zip_size:.0f} MB)")
 
+def compile_installer_exe():
+    banner("Step 9: Compiling Setup Installer EXE")
+    
+    zip_file = os.path.join(BASE_DIR, "paperfect_portable.zip")
+    if not os.path.exists(zip_file):
+        raise FileNotFoundError(f"Source zip package not found: {zip_file}")
+        
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--onefile",
+        "--noconsole",
+        "--name", "Paperfect_Setup",
+        "--add-data", "paperfect_portable.zip;.",
+        "installer.py"
+    ]
+    
+    print("  Running PyInstaller... this may take 1-2 minutes...")
+    result = subprocess.run(cmd, cwd=BASE_DIR, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("  [ERROR] PyInstaller compilation failed!")
+        print(result.stdout)
+        print(result.stderr)
+        raise RuntimeError("PyInstaller failed")
+        
+    # Copy compiled exe from dist/ to root directory
+    compiled_exe = os.path.join(BASE_DIR, "dist", "Paperfect_Setup.exe")
+    final_exe = os.path.join(BASE_DIR, "Paperfect_Setup.exe")
+    if os.path.exists(compiled_exe):
+        if os.path.exists(final_exe):
+            os.remove(final_exe)
+        shutil.move(compiled_exe, final_exe)
+        print(f"  [OK] Installer compiled successfully: {final_exe}")
+    else:
+        raise FileNotFoundError(f"Compiled setup executable not found at: {compiled_exe}")
+        
+    # Cleanup temp build files
+    print("  Cleaning up PyInstaller build artifacts...")
+    for path in [os.path.join(BASE_DIR, "build"), os.path.join(BASE_DIR, "dist"), os.path.join(BASE_DIR, "Paperfect_Setup.spec")]:
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+                
+    print("  Done.")
+
 def main():
     banner("Paperfect Portable Package Builder v2")
     print(f"  Source: {BASE_DIR}")
@@ -426,15 +490,13 @@ def main():
     create_launcher()
     create_readme()
     make_zip()
+    compile_installer_exe()
     
     banner("BUILD COMPLETE!")
     print(f"  Output directory: {DIST_DIR}")
-    print(f"  Zip file: paperfect_portable.zip")
-    print(f"\n  Send paperfect_portable.zip to your advisor.")
-    print(f"  She should:")
-    print(f"    1. Unzip the file")
-    print(f"    2. Double-click install.bat")
-    print(f"    3. Double-click 启动程序.bat")
+    print(f"  Installer file: Paperfect_Setup.exe")
+    print(f"\n  Send Paperfect_Setup.exe to your user/advisor.")
+    print(f"  They just need to double-click it to install, choose the folder, and run!")
 
 if __name__ == "__main__":
     main()
