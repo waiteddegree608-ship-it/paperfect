@@ -220,6 +220,59 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
 from backend.services.file_manager import handle_upload_file as old_handle_upload_file
 from backend.services.task_runner import active_tasks, async_run_builder
 
+@router.post("/documents/{doc_id}/retag")
+def retag_document(doc_id: int, db: Session = Depends(get_db)):
+    """Re-run metadata/abstract/tag analysis for a library document (no full pipeline)."""
+    import json as _json
+    from backend.services.paper_analyzer import analyze_paper
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = doc.file_path
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="PDF file missing on disk")
+    analysis = analyze_paper(path)
+    en_title = analysis.get("en_title")
+    if en_title and en_title != "Unknown Title":
+        doc.title = en_title
+    if analysis.get("zh_title"):
+        doc.zh_title = analysis.get("zh_title")
+    doc.venue = analysis.get("venue") or doc.venue or "Unknown"
+    doc.paper_type = analysis.get("paper_type") or doc.paper_type or ""
+    doc.jcr_partition = analysis.get("jcr_partition") or ""
+    doc.ccf_partition = analysis.get("ccf_partition") or ""
+    doc.core_type = analysis.get("core_type") or ""
+    f_val = analysis.get("research_field", "")
+    doc.research_field = _json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val or "")
+    d_val = analysis.get("research_direction", "")
+    doc.research_direction = _json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val or "")
+    if analysis.get("abstract"):
+        doc.abstract = analysis.get("abstract")
+    if analysis.get("en_abstract"):
+        doc.en_abstract = analysis.get("en_abstract")
+    doc.en_keywords = _json.dumps(analysis.get("en_keywords", []), ensure_ascii=False)
+    for kw in analysis.get("zh_keywords", []) or []:
+        kw = (kw or "").strip()
+        if not kw:
+            continue
+        tag = db.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
+        if not tag:
+            tag = Tag(name=kw, category="Keywords")
+            db.add(tag)
+        if tag not in doc.tags:
+            doc.tags.append(tag)
+    db.commit()
+    db.refresh(doc)
+    return {
+        "status": "success",
+        "id": doc.id,
+        "title": doc.title,
+        "zh_title": doc.zh_title,
+        "paper_type": doc.paper_type,
+        "tags": [t.name for t in doc.tags],
+    }
+
 @router.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks,

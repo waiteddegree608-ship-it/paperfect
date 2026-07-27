@@ -210,7 +210,24 @@ function waitForServer(callback, timeout = 90000) {
     check();
 }
 
+function getAppIconPath() {
+    const candidates = [
+        path.join(__dirname, 'build', 'icon.ico'),
+        path.join(__dirname, 'frontend', 'static', 'favicon.png'),
+        path.join(__dirname, 'frontend', 'static', 'paperfect_logo.png'),
+        path.join(getPortablePath(), 'frontend', 'static', 'favicon.png'),
+        path.join(process.resourcesPath || '', 'dist_portable', 'frontend', 'static', 'favicon.png'),
+    ];
+    for (const c of candidates) {
+        try {
+            if (c && fs.existsSync(c)) return c;
+        } catch (_) {}
+    }
+    return undefined;
+}
+
 function showLoadingWindow() {
+    const icon = getAppIconPath();
     loadingWindow = new BrowserWindow({
         width: 500,
         height: 400,
@@ -218,9 +235,11 @@ function showLoadingWindow() {
         resizable: false,
         transparent: true,
         alwaysOnTop: true,
+        ...(icon ? { icon } : {}),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            partition: 'persist:paperfect',
         },
     });
 
@@ -257,6 +276,7 @@ function runEnvironmentSetup(callback) {
 }
 
 function createMainWindow() {
+    const icon = getAppIconPath();
     mainWindow = new BrowserWindow({
         title: 'Paperfect AI Academic Assistant',
         width: 1366,
@@ -264,9 +284,12 @@ function createMainWindow() {
         minWidth: 1024,
         minHeight: 700,
         show: false,
+        ...(icon ? { icon } : {}),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            // Persist localStorage (theme / language) across restarts
+            partition: 'persist:paperfect',
         },
     });
 
