@@ -212,10 +212,13 @@ function waitForServer(callback, timeout = 90000) {
 
 function getAppIconPath() {
     const candidates = [
-        path.join(__dirname, 'build', 'icon.ico'),
+        path.join(__dirname, 'frontend', 'static', 'app_icon.ico'),
         path.join(__dirname, 'frontend', 'static', 'favicon.png'),
         path.join(__dirname, 'frontend', 'static', 'paperfect_logo.png'),
+        path.join(__dirname, 'build', 'icon.ico'),
+        path.join(getPortablePath(), 'frontend', 'static', 'app_icon.ico'),
         path.join(getPortablePath(), 'frontend', 'static', 'favicon.png'),
+        path.join(process.resourcesPath || '', 'dist_portable', 'frontend', 'static', 'app_icon.ico'),
         path.join(process.resourcesPath || '', 'dist_portable', 'frontend', 'static', 'favicon.png'),
     ];
     for (const c of candidates) {
