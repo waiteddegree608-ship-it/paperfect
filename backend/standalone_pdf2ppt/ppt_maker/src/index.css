@@ -12,6 +12,25 @@
   --text-muted: #94a3b8;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
+  --workspace-bg: rgba(15, 23, 42, 0.5);
+  --toolbar-bg: #0f172a;
+  --toolbar-border: #1e293b;
+}
+
+/* Cyan Light / day mode — keep slide canvas white, chrome light */
+html.theme-light,
+body.theme-light,
+body[data-theme="cyan-light"] {
+  --bg-color: #e8eef2;
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --border-color: rgba(15, 23, 42, 0.1);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --accent: #39b2b2;
+  --accent-hover: #2a8f8f;
+  --workspace-bg: #dfe7ec;
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #d0dbe3;
 }
 
 * {
@@ -32,6 +51,20 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
+}
+
+.ppt-shell {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+.ppt-toolbar {
+  background: var(--toolbar-bg);
+  border-color: var(--toolbar-border);
+}
+
+.ppt-workspace {
+  background: var(--workspace-bg);
 }
 
 /* Scrollbar styling */

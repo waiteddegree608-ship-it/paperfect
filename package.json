@@ -1,0 +1,49 @@
+{
+  "name": "paperfect",
+  "version": "2.0.0",
+  "description": "Paperfect AI Academic Assistant",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.paperfect.app",
+    "productName": "Paperfect",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "loading.html"
+    ],
+    "extraResources": [
+      {
+        "from": "dist_portable",
+        "to": "dist_portable",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Paperfect"
+    }
+  }
+}

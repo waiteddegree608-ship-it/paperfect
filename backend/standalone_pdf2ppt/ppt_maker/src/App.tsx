@@ -15,8 +15,22 @@ import pptxgen from 'pptxgenjs';
 type Tool = 'select' | 'arrow' | 'text';
 
 interface BaseElement { id: string; type: string; isSelected?: boolean; }
-interface ArrowElement extends BaseElement { type: 'arrow'; startX: number; startY: number; endX: number; endY: number; color: string; width: number; }
-interface TextElement extends BaseElement { type: 'text'; x: number; y: number; text: string; color: string; fontSize: number; isEditing: boolean; maxWidth?: number; }
+interface ArrowElement extends BaseElement {
+  type: 'arrow';
+  startX: number; startY: number; endX: number; endY: number;
+  color: string; width: number;
+  /** true for figure-to-card connectors (no triangle arrowhead) */
+  noHead?: boolean;
+}
+interface TextElement extends BaseElement {
+  type: 'text';
+  x: number; y: number; text: string; color: string; fontSize: number;
+  isEditing: boolean; maxWidth?: number; maxHeight?: number;
+  textAlign?: string; valign?: string;
+  fontWeight?: string | number; fontFamily?: string;
+  /** Callout card chrome — matches PowerPoint text-on-shape */
+  fill?: string; stroke?: string; strokeWidth?: number; borderRadius?: number;
+}
 type CanvasElement = ArrowElement | TextElement;
 
 interface SlideImage {
@@ -73,6 +87,25 @@ const App: React.FC = () => {
 
   const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff', '#000000'];
 
+  // Sync light/dark chrome with Paperfect parent theme (Cyan Light etc.)
+  useEffect(() => {
+    const applyTheme = () => {
+      const theme = localStorage.getItem('theme') || '';
+      const isLight = theme.includes('light') || theme === 'cyan-light';
+      document.documentElement.classList.toggle('theme-light', isLight);
+      document.body.classList.toggle('theme-light', isLight);
+      if (theme) document.body.setAttribute('data-theme', theme);
+    };
+    applyTheme();
+    window.addEventListener('storage', applyTheme);
+    // Parent may set theme after iframe load
+    const t = window.setInterval(applyTheme, 800);
+    return () => {
+      window.removeEventListener('storage', applyTheme);
+      window.clearInterval(t);
+    };
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const book = params.get('book');
@@ -108,15 +141,21 @@ const App: React.FC = () => {
                      x: Math.round(el.position.x * SCALE),
                      y: Math.round(el.position.y * SCALE),
                      text: el.content || '',
-                     color: el.style?.color || '#000000',
-                     fontSize: Math.round((el.style?.fontSize || 18) * SCALE),
+                     color: el.style?.color || '#0F172A',
+                     fontSize: Math.round((el.style?.fontSize || 14) * SCALE),
                      isEditing: false,
                      isSelected: false,
                      maxWidth: Math.round(el.size.width * SCALE),
                      maxHeight: Math.round(el.size.height * SCALE),
                      textAlign: el.style?.textAlign || 'left',
-                     valign: el.style?.valign || 'top'
-                   });
+                     valign: el.style?.valign || 'top',
+                     fontWeight: el.style?.fontWeight || (el.style?.fill ? 'normal' : 'bold'),
+                     fontFamily: el.style?.fontFamily || 'Calibri, Segoe UI, sans-serif',
+                     fill: el.style?.fill,
+                     stroke: el.style?.stroke,
+                     strokeWidth: el.style?.strokeWidth,
+                     borderRadius: el.style?.borderRadius,
+                   } as TextElement);
                 } else if (el.type === 'shape' && (el.content === 'arrow' || el.content === 'line')) {
                    const sx = el.position.x * SCALE;
                    const sy = el.position.y * SCALE;
@@ -134,6 +173,7 @@ const App: React.FC = () => {
                    if (flipH) { startX = sx + ew; endX = sx; }
                    if (flipV) { startY = sy + eh; endY = sy; }
 
+                   const isLine = el.content === 'line' || el.style?.noHead;
                    newEls.push({
                       id: el.id || Math.random().toString(36).substr(2, 9),
                       type: 'arrow',
@@ -141,14 +181,89 @@ const App: React.FC = () => {
                       startY,
                       endX,
                       endY,
-                      color: el.style?.stroke || '#3b82f6',
-                      width: el.style?.strokeWidth || 3,
+                      // connectors use muted slate, not default bright blue
+                      color: el.style?.stroke || (isLine ? '#64748B' : '#3b82f6'),
+                      width: el.style?.strokeWidth || (isLine ? 1.5 : 3),
+                      noHead: !!isLine,
                       isSelected: false
-                   });
+                   } as ArrowElement);
+                } else if (el.type === 'shape' && (el.content === 'ellipse' || el.content === 'roundRect' || el.content === 'rectangle')) {
+                   // On-figure numbered badges are ellipse shapes (fill) + separate text in PPTX.
+                   // Without importing the ellipse, only a hard-to-see white digit remains.
+                   const isEllipse = el.content === 'ellipse';
+                   const fill = el.style?.fill && el.style.fill !== 'transparent' ? el.style.fill : (isEllipse ? '#1E40AF' : undefined);
+                   const stroke = el.style?.stroke || (isEllipse ? '#FFFFFF' : undefined);
+                   newEls.push({
+                     id: el.id || Math.random().toString(36).substr(2, 9),
+                     type: 'text',
+                     x: Math.round(el.position.x * SCALE),
+                     y: Math.round(el.position.y * SCALE),
+                     text: '',
+                     color: '#FFFFFF',
+                     fontSize: Math.max(10, Math.round(Math.min(el.size.width, el.size.height) * SCALE * 0.45)),
+                     isEditing: false,
+                     isSelected: false,
+                     maxWidth: Math.round(el.size.width * SCALE),
+                     maxHeight: Math.round(el.size.height * SCALE),
+                     textAlign: 'center',
+                     valign: 'middle',
+                     fontWeight: 'bold',
+                     fontFamily: 'Calibri, Segoe UI, sans-serif',
+                     fill,
+                     stroke,
+                     strokeWidth: el.style?.strokeWidth || (isEllipse ? 1.5 : 1),
+                     borderRadius: isEllipse ? 999 : (el.content === 'roundRect' ? 12 : 0),
+                   } as TextElement);
                 }
              });
+
+             // Merge empty badge circles with overlapping short number labels (1–99)
+             const merged: CanvasElement[] = [];
+             const used = new Set<string>();
+             const texts = newEls.filter((e): e is TextElement => e.type === 'text');
+             for (const t of texts) {
+               if (used.has(t.id)) continue;
+               const label = (t.text || '').trim();
+               const isNum = /^\d{1,2}$/.test(label);
+               if (isNum && !t.fill) {
+                 const tw = t.maxWidth || 24;
+                 const th = t.maxHeight || 24;
+                 const mate = texts.find(o =>
+                   o.id !== t.id &&
+                   !used.has(o.id) &&
+                   !(o.text || '').trim() &&
+                   !!o.fill &&
+                   (o.borderRadius === 999 || (o.borderRadius != null && o.borderRadius > 50)) &&
+                   Math.abs(o.x - t.x) < Math.max(tw, o.maxWidth || 0) * 0.6 &&
+                   Math.abs(o.y - t.y) < Math.max(th, o.maxHeight || 0) * 0.6
+                 );
+                 if (mate) {
+                   used.add(mate.id);
+                   used.add(t.id);
+                   merged.push({
+                     ...mate,
+                     text: label,
+                     color: t.color && t.color.toLowerCase() !== '#000000' ? t.color : '#FFFFFF',
+                     fontSize: t.fontSize || mate.fontSize,
+                     fontWeight: 'bold',
+                     textAlign: 'center',
+                     valign: 'middle',
+                     maxWidth: mate.maxWidth || tw,
+                     maxHeight: mate.maxHeight || th,
+                   });
+                   continue;
+                 }
+               }
+               if (!used.has(t.id)) {
+                 used.add(t.id);
+                 merged.push(t);
+               }
+             }
+             for (const e of newEls) {
+               if (e.type !== 'text' && !used.has(e.id)) merged.push(e);
+             }
              
-             return { slideImage: sImg, elements: newEls };
+             return { slideImage: sImg, elements: merged };
           });
           
           setAllSlides(parsedSlides);
@@ -503,7 +618,7 @@ const App: React.FC = () => {
 
     setIsAnalyzing(true);
     try {
-      const backendPort = window.location.port === '8081' ? '8900' : window.location.port;
+      const backendPort = (window.location.port === '8081' || window.location.port === '8000') ? '8900' : window.location.port;
       const response = await fetch(`http://${window.location.hostname}:${backendPort}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -551,9 +666,9 @@ const App: React.FC = () => {
   }, [elements, currentSlideIndex, allSlides.length]);
 
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 font-sans p-4 gap-4 overflow-hidden">
+    <div className="ppt-shell flex flex-col h-screen w-full font-sans p-4 gap-4 overflow-hidden">
       {/* Compact Toolbar */}
-      <div className="flex flex-row flex-nowrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 z-10 w-full shrink-0 overflow-x-auto whitespace-nowrap scrollbar-thin select-none">
+      <div className="ppt-toolbar flex flex-row flex-nowrap items-center gap-2 border rounded-xl px-3 py-2 z-10 w-full shrink-0 overflow-x-auto whitespace-nowrap scrollbar-thin select-none">
         
         {/* Navigation */}
         {allSlides.length > 0 && (
@@ -633,7 +748,7 @@ const App: React.FC = () => {
       {/* Slide Workspace */}
       <div 
         ref={workspaceRef}
-        className="flex-1 min-h-0 relative w-full h-full glass-panel rounded-xl shadow-2xl overflow-y-auto overflow-x-hidden p-4 bg-slate-900/50"
+        className="ppt-workspace flex-1 min-h-0 relative w-full h-full glass-panel rounded-xl shadow-2xl overflow-y-auto overflow-x-hidden p-4"
       >
         <div className="w-full flex justify-center pb-8" style={{ minHeight: 'max-content' }}>
         {(slideImage || elements.length > 0 || allSlides.length > 0) ? (
@@ -683,7 +798,9 @@ const App: React.FC = () => {
                   />
                   <line
                     x1={arrow.startX} y1={arrow.startY} x2={arrow.endX} y2={arrow.endY}
-                    stroke={arrow.color} strokeWidth={arrow.width} markerEnd={`url(#arr-${arrow.color.replace('#', '')})`}
+                    stroke={arrow.color}
+                    strokeWidth={arrow.width}
+                    markerEnd={arrow.noHead ? undefined : `url(#arr-${arrow.color.replace('#', '')})`}
                     className={`pointer-events-none transition-all ${arrow.isSelected ? 'stroke-current drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : ''}`}
                   />
                   {arrow.isSelected && currentTool === 'select' && (
@@ -764,24 +881,55 @@ const App: React.FC = () => {
                       autoFocus value={textEl.text} onChange={(e) => handleTextChange(textEl.id, e.target.value)}
                       onBlur={() => finishTextEditing(textEl.id)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishTextEditing(textEl.id); } }}
                       className="bg-white/80 backdrop-blur outline-none border-indigo-500 border rounded px-1 py-0"
-                      style={{ color: textEl.color, fontSize: `${textEl.fontSize}px`, fontWeight: 'bold', width: textEl.maxWidth ? `${textEl.maxWidth}px` : `${Math.max(150, textEl.text.length * (textEl.fontSize * 0.6) + 20)}px`, minHeight: '40px', resize: 'both' }}
+                      style={{
+                        color: textEl.color,
+                        fontSize: `${textEl.fontSize}px`,
+                        fontWeight: textEl.fontWeight || 'normal',
+                        fontFamily: textEl.fontFamily || 'Calibri, Segoe UI, sans-serif',
+                        width: textEl.maxWidth ? `${textEl.maxWidth}px` : `${Math.max(150, textEl.text.length * (textEl.fontSize * 0.6) + 20)}px`,
+                        minHeight: textEl.maxHeight ? `${textEl.maxHeight}px` : '40px',
+                        resize: 'both',
+                        whiteSpace: 'pre-wrap',
+                      }}
                     />
                   ) : (
-                    <div 
-                      className="px-1 py-0 drop-shadow-md"
-                      style={{ 
-                         color: textEl.color, 
-                         fontSize: `${textEl.fontSize}px`, 
-                         fontWeight: 'bold', 
-                         textAlign: (textEl as any).textAlign || 'left',
+                    <div
+                      className={textEl.fill ? '' : 'px-1 py-0'}
+                      style={{
+                         color: textEl.color,
+                         fontSize: `${textEl.fontSize}px`,
+                         fontWeight: textEl.fontWeight || (textEl.fill ? 500 : 'bold'),
+                         fontFamily: textEl.fontFamily || 'Calibri, Segoe UI, sans-serif',
+                         textAlign: (textEl.textAlign as any) || 'left',
                          display: 'flex',
                          flexDirection: 'column',
-                         justifyContent: (textEl as any).valign === 'middle' ? 'center' : ((textEl as any).valign === 'bottom' ? 'flex-end' : 'flex-start'),
-                         height: (textEl as any).maxHeight ? `${(textEl as any).maxHeight}px` : 'auto',
-                         textShadow: '0 1px 2px rgba(255,255,255,0.8)', 
-                         width: textEl.maxWidth ? `${textEl.maxWidth + 4}px` : undefined, 
-                         whiteSpace: textEl.maxWidth ? 'pre-wrap' : 'nowrap', 
-                         wordBreak: textEl.maxWidth ? 'break-all' : 'normal' 
+                         alignItems: (textEl.borderRadius === 999 || textEl.textAlign === 'center') ? 'center' : 'stretch',
+                         justifyContent: textEl.valign === 'middle' ? 'center' : (textEl.valign === 'bottom' ? 'flex-end' : 'flex-start'),
+                         height: textEl.maxHeight ? `${textEl.maxHeight}px` : 'auto',
+                         width: textEl.maxWidth ? `${textEl.maxWidth}px` : undefined,
+                         minWidth: textEl.borderRadius === 999 ? (textEl.maxWidth || 20) : undefined,
+                         minHeight: textEl.borderRadius === 999 ? (textEl.maxHeight || 20) : undefined,
+                         boxSizing: 'border-box',
+                         // Callout card chrome (matches PowerPoint text-on-shape)
+                         background: textEl.fill || 'transparent',
+                         border: textEl.stroke
+                           ? `${Math.max(1, textEl.strokeWidth || 1.5)}px solid ${textEl.stroke}`
+                           : undefined,
+                         borderRadius: textEl.borderRadius != null ? textEl.borderRadius : (textEl.fill ? 10 : 0),
+                         // Numbered on-figure badges are ~20px circles — no card padding
+                         padding: textEl.borderRadius === 999
+                           ? '0'
+                           : (textEl.fill ? '8px 10px' : '0 2px'),
+                         overflow: 'hidden',
+                         boxShadow: textEl.borderRadius === 999
+                           ? '0 1px 3px rgba(15,23,42,0.35)'
+                           : (textEl.fill ? '0 2px 8px rgba(15,23,42,0.08)' : undefined),
+                         textShadow: textEl.fill ? 'none' : '0 1px 2px rgba(255,255,255,0.8)',
+                         lineHeight: textEl.borderRadius === 999 ? 1 : undefined,
+                         whiteSpace: 'pre-wrap',
+                         wordBreak: 'normal',
+                         overflowWrap: 'anywhere',
+                         lineHeight: 1.25,
                       }}
                     >
                       {textEl.text}

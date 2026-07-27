@@ -123,6 +123,27 @@ def fetch_crossref_metadata_by_title(title: str):
         print(f"Crossref API title search error for {title}: {e}")
     return None
 
+def extract_local_fallback_abstract(pdf_path):
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for i in range(min(2, len(doc))):
+            text += doc[i].get_text("text")
+        doc.close()
+        
+        match = re.search(r'(?i)\babstract\b(.*)', text, re.DOTALL)
+        if match:
+            abstract_text = match.group(1).strip()
+            intro_match = re.search(r'(?i)\b(?:1\.?\s+)?introduction\b', abstract_text)
+            if intro_match:
+                abstract_text = abstract_text[:intro_match.start()].strip()
+            abstract_text = re.sub(r'\s+', ' ', abstract_text)
+            if len(abstract_text) > 50:
+                return abstract_text[:1200]
+    except Exception:
+        pass
+    return ""
+
 def analyze_paper(pdf_path: str):
     """
     Extract title, venue, abstract, and keywords from the first few pages of a PDF paper.
@@ -132,10 +153,22 @@ def analyze_paper(pdf_path: str):
     base_url = config.get("paper_api_url") or config.get("chat_api_url")
     model = config.get("paper_model") or config.get("chat_model")
     
-    fallback_result = {"title": "Unknown Title", "venue": "Unknown", "abstract": "", "keywords": []}
+    local_abstract = extract_local_fallback_abstract(pdf_path)
+    title_fallback = os.path.basename(pdf_path).replace(".pdf", "")
+    
+    fallback_result = {
+        "en_title": title_fallback, 
+        "zh_title": title_fallback,
+        "venue": "Unknown", 
+        "abstract": local_abstract, 
+        "en_abstract": local_abstract,
+        "keywords": [],
+        "zh_keywords": [],
+        "en_keywords": []
+    }
     
     if not api_key:
-        print("No API key available for paper analysis.")
+        print("No API key available for paper analysis. Using local extraction fallback.")
         return fallback_result
         
     try:
@@ -338,4 +371,4 @@ def analyze_paper(pdf_path: str):
         return result
     except Exception as e:
         print(f"Error analyzing paper {pdf_path}: {e}")
-        return {"en_title": "Unknown Title", "title": "Unknown Title"}
+        return fallback_result

@@ -9,6 +9,7 @@ import json
 from backend.models.database import SessionLocal, Folder, Document, Tag, DocumentRelation
 from backend.services.paper_analyzer import analyze_paper
 from backend.core.config import get_base_dir
+from backend.services.file_manager import active_tasks_progress
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -72,6 +73,104 @@ def move_document(doc_id: int, req: MoveDocumentRequest, db: Session = Depends(g
     db.refresh(doc)
     return {"status": "success", "id": doc.id, "folder_id": doc.folder_id}
 
+def _doc_pipeline_status(book_name: str):
+    """
+    Derive UI status from disk artifacts + in-memory active_tasks.
+
+    Critical UX rule: if annotate/translate/KB already exist, the paper is
+    openable even while PPT is still generating. Previously anything in
+    active_tasks was hard-locked as processing → users thought parsing "vanished".
+    """
+    from backend.core.config import get_base_dir
+
+    base = get_base_dir()
+    paper_dir = os.path.join(base, "data", "papers", book_name)
+    book_dir = os.path.join(base, "data", "textbooks", book_name)
+    target_dir = paper_dir if os.path.isdir(paper_dir) else book_dir if os.path.isdir(book_dir) else None
+    is_paper = os.path.isdir(paper_dir)
+
+    paper_task_id = f"papers_{book_name}"
+    book_task_id = f"books_{book_name}"
+    task_id = paper_task_id if is_paper or paper_task_id in active_tasks else book_task_id
+    in_flight = (paper_task_id in active_tasks) or (book_task_id in active_tasks)
+
+    pptx_path = os.path.join(target_dir or "", "pptx", f"{book_name}_Full_Presentation.pptx") if target_dir else ""
+    annotated = os.path.join(target_dir or "", "marked", f"{book_name}_annotated.pdf") if target_dir else ""
+    translated = os.path.join(target_dir or "", "translated", f"{book_name}_translated.pdf") if target_dir else ""
+    kb = os.path.join(target_dir or "", "parsed", f"{book_name}_KnowledgeBase.md") if target_dir else ""
+    raw_pdf = os.path.join(target_dir or "", "raw", f"{book_name}.pdf") if target_dir else ""
+
+    has_pptx = bool(pptx_path and os.path.exists(pptx_path))
+    has_annotated = bool(annotated and os.path.exists(annotated))
+    has_translated = bool(translated and os.path.exists(translated))
+    has_kb = bool(kb and os.path.exists(kb))
+    has_raw = bool(raw_pdf and os.path.exists(raw_pdf))
+    # Viewable as soon as raw PDF exists (chat page); richer tabs need annotated/etc.
+    can_open = has_raw or has_annotated or has_kb
+
+    if has_pptx and not in_flight:
+        return {
+            "status": "ready",
+            "progress": "",
+            "percent": 100,
+            "can_open": True,
+            "has_annotated": has_annotated,
+            "has_translated": has_translated,
+            "has_kb": has_kb,
+            "has_pptx": has_pptx,
+        }
+
+    if in_flight:
+        progress_info = active_tasks_progress.get(
+            paper_task_id if paper_task_id in active_tasks else book_task_id,
+            {"percent": 5, "stage": "准备中..."},
+        )
+        # If core parse outputs already exist, treat as openable "processing"
+        return {
+            "status": "processing",
+            "progress": progress_info.get("stage", "准备中..."),
+            "percent": progress_info.get("percent", 5),
+            "can_open": can_open,
+            "has_annotated": has_annotated,
+            "has_translated": has_translated,
+            "has_kb": has_kb,
+            "has_pptx": has_pptx,
+        }
+
+    # Not in active_tasks: decide ready vs interrupted from disk
+    if is_paper:
+        if has_pptx or (has_annotated and has_kb):
+            status = "ready"
+            percent = 100 if has_pptx else 95
+            progress = "" if has_pptx else "PPT 待生成/可先阅读"
+        elif has_raw:
+            status = "interrupted"
+            percent = 30
+            progress = "解析未完成"
+        else:
+            status = "interrupted"
+            percent = 0
+            progress = "文件缺失"
+    else:
+        if has_kb:
+            status, percent, progress = "ready", 100, ""
+        elif has_raw:
+            status, percent, progress = "interrupted", 40, "抽取未完成"
+        else:
+            status, percent, progress = "interrupted", 0, "文件缺失"
+
+    return {
+        "status": status,
+        "progress": progress,
+        "percent": percent,
+        "can_open": can_open,
+        "has_annotated": has_annotated,
+        "has_translated": has_translated,
+        "has_kb": has_kb,
+        "has_pptx": has_pptx,
+    }
+
+
 @router.get("/documents")
 def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(Document)
@@ -83,6 +182,12 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
     docs = query.all()
     result = []
     for d in docs:
+        book_name = d.original_filename.replace(".pdf", "") if d.original_filename else ""
+        pipe = _doc_pipeline_status(book_name) if book_name else {
+            "status": "ready", "progress": "", "percent": 100, "can_open": True,
+            "has_annotated": False, "has_translated": False, "has_kb": False, "has_pptx": False,
+        }
+
         result.append({
             "id": d.id,
             "title": d.title,
@@ -100,7 +205,15 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
             "en_abstract": d.en_abstract,
             "en_keywords": d.en_keywords,
             "folder_id": d.folder_id,
-            "tags": [{"id": t.id, "name": t.name, "category": t.category} for t in d.tags]
+            "tags": [{"id": t.id, "name": t.name, "category": t.category} for t in d.tags],
+            "status": pipe["status"],
+            "progress": pipe["progress"],
+            "percent": pipe["percent"],
+            "can_open": pipe.get("can_open", True),
+            "has_annotated": pipe.get("has_annotated", False),
+            "has_translated": pipe.get("has_translated", False),
+            "has_kb": pipe.get("has_kb", False),
+            "has_pptx": pipe.get("has_pptx", False),
         })
     return result
 

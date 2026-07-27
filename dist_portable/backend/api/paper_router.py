@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, UploadFile, File, Form, Request, BackgroundTasks
-from backend.services.file_manager import handle_upload_file, get_item_by_name, delete_target_item, scan_items
-from backend.services.task_runner import active_tasks, async_run_builder
+from backend.services.file_manager import handle_upload_file, get_item_by_name, delete_target_item, scan_items, active_tasks, active_tasks_progress
+from backend.services.task_runner import async_run_builder
 from backend.core.config import get_base_dir
 from pydantic import BaseModel
 
@@ -56,20 +56,35 @@ async def check_status(item_type: str, book_name: str):
     target_dir = os.path.join(get_base_dir(), "data", "textbooks" if item_type == "book" else "papers", book_name)
     
     if item_type == "book":
+        if f"books_{book_name}" in active_tasks:
+            status = "processing"
+            progress_info = active_tasks_progress.get(f"books_{book_name}", {"percent": 0, "stage": "准备中..."})
+            return {
+                "status": status, 
+                "progress": progress_info.get("stage", "准备中..."), 
+                "percent": progress_info.get("percent", 50)
+            }
+            
         kb_path = os.path.join(target_dir, "parsed", f"{book_name}_KnowledgeBase.md")
         if os.path.exists(kb_path):
             return {"status": "ready"}
             
-        status = "processing" if f"books_{book_name}" in active_tasks else "interrupted"
-        progress = "抽取中"
-        return {"status": status, "progress": progress}
+        return {"status": "interrupted", "progress": "已中断", "percent": 0}
     else:
+        if f"papers_{book_name}" in active_tasks:
+            status = "processing"
+            progress_info = active_tasks_progress.get(f"papers_{book_name}", {"percent": 0, "stage": "生成中"})
+            return {
+                "status": status, 
+                "progress": progress_info.get("stage", "生成中"), 
+                "percent": progress_info.get("percent", 50)
+            }
+            
         pptx_path = os.path.join(target_dir, "pptx", f"{book_name}_Full_Presentation.pptx")
         if os.path.exists(pptx_path):
             return {"status": "ready"}
         
-        status = "processing" if f"papers_{book_name}" in active_tasks else "interrupted"
-        return {"status": status, "progress": "生成中"}
+        return {"status": "interrupted", "progress": "已中断", "percent": 0}
 
 # Prompts API
 class PromptSaveRequest(BaseModel):

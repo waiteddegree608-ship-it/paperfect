@@ -495,7 +495,10 @@
     <script src="/static/js/realtime_trans.js?v=3"></script>
     <script>
         // PPT Page Mapping & Slide Change Sync Listener
+        // page_mapping keys are slide indices (strings); values are 1-based PDF page numbers.
+        // Follow-up slides (补充说明) share the parent figure's PDF page.
         window.pptPageMapping = null;
+        window.pptCurrentSlideIndex = 0;
         window.addEventListener('message', (event) => {
             if (event.data) {
                 if (event.data.type === 'PPT_MAPPING_LOADED') {
@@ -503,9 +506,11 @@
                     console.log("[Parent] Loaded PPT page mapping:", window.pptPageMapping);
                 } else if (event.data.type === 'SLIDE_CHANGED_BY_USER') {
                     const slideIndex = event.data.slideIndex;
+                    window.pptCurrentSlideIndex = slideIndex;
                     console.log("[Parent] Slide changed by user:", slideIndex);
-                    if (window.pptPageMapping && window.pptPageMapping[slideIndex] !== undefined) {
-                        const targetPage = window.pptPageMapping[slideIndex];
+                    const map = window.pptPageMapping;
+                    if (map && (map[slideIndex] !== undefined || map[String(slideIndex)] !== undefined)) {
+                        const targetPage = map[slideIndex] !== undefined ? map[slideIndex] : map[String(slideIndex)];
                         console.log("[Parent] Navigating PDF to page:", targetPage);
                         
                         if (window.pdfSyncManager && window.pdfSyncManager.iframes) {
@@ -518,7 +523,10 @@
                                     try {
                                         const innerWin = iframe.contentWindow;
                                         if (innerWin && innerWin.PDFViewerApplication) {
-                                            innerWin.PDFViewerApplication.page = targetPage;
+                                            // Only jump if page actually changes (avoid jitter on 补充说明 of same page)
+                                            if (innerWin.PDFViewerApplication.page !== targetPage) {
+                                                innerWin.PDFViewerApplication.page = targetPage;
+                                            }
                                         }
                                     } catch (e) {
                                         console.warn("[Parent] Failed to set page for iframe:", id, e.message);

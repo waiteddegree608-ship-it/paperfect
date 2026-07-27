@@ -50,7 +50,7 @@ class PaperfectInstallerApp:
         header_label.pack(fill="both", expand=True)
         
         # Main Content Frame
-        self.main_frame = tk.Frame(self.root, padding=20)
+        self.main_frame = ttk.Frame(self.root, padding=20)
         self.main_frame.pack(fill="both", expand=True)
         
         # Step 1: Welcome & Path Selection
@@ -75,7 +75,7 @@ class PaperfectInstallerApp:
         # Requirements Label
         self.lbl_req = tk.Label(
             self.main_frame, 
-            text="Note: Python 3.10+ and Node.js 18+ are required on the host system.",
+            text="Note: Python 3.10+ is required on the host system.",
             font=("Segoe UI", 9, "italic"),
             fg="#64748B",
             anchor="w"
@@ -98,22 +98,25 @@ class PaperfectInstallerApp:
         self.log_text = tk.Text(
             self.main_frame, 
             height=12, 
-            font=("Consolas", 8.5), 
+            font=("Consolas", 9), 
             bg="#0F172A", 
             fg="#E2E8F0",
             state="disabled"
         )
         
+        # Divider line
+        separator = ttk.Separator(self.root, orient="horizontal")
+        separator.pack(fill="x", side="bottom")
+        
         # Bottom Control Frame
-        self.control_frame = tk.Frame(self.root, height=60, bd=1, relief="raised")
+        self.control_frame = ttk.Frame(self.root, padding=(15, 10))
         self.control_frame.pack(fill="x", side="bottom")
-        self.control_frame.pack_propagate(False)
         
         self.btn_cancel = ttk.Button(self.control_frame, text="Cancel", command=self.root.quit)
-        self.btn_cancel.pack(side="right", padx=15, pady=15)
+        self.btn_cancel.pack(side="right", padx=(15, 0))
         
         self.btn_install = ttk.Button(self.control_frame, text="Install", command=self.start_installation)
-        self.btn_install.pack(side="right", padx=0, pady=15)
+        self.btn_install.pack(side="right")
         
     def browse_folder(self):
         folder = filedialog.askdirectory(initialdir=self.install_dir.get(), title="Select Install Folder")
@@ -162,6 +165,27 @@ class PaperfectInstallerApp:
             os.makedirs(target_dir, exist_ok=True)
             self.append_log(f"Target folder created: {target_dir}")
             
+            # Kill any existing processes locking the target folder or ports
+            self.append_log("Clearing any running Paperfect processes to prevent file locks...")
+            try:
+                # Format directory path with double backslashes for PowerShell compatibility
+                target_dir_escaped = target_dir.replace("\\", "\\\\")
+                kill_cmd = (
+                    f'Get-Process | Where-Object {{ $_.Path -like "{target_dir_escaped}*" -or '
+                    f'$_.CommandLine -like "*{target_dir_escaped}*" }} | Stop-Process -Force -ErrorAction SilentlyContinue'
+                )
+                subprocess.run(["powershell", "-Command", kill_cmd], creationflags=subprocess.CREATE_NO_WINDOW)
+                
+                # Also kill port 8900 and 8000 processes
+                kill_ports = (
+                    'Get-NetTCPConnection -LocalPort 8900, 8000 -ErrorAction SilentlyContinue | '
+                    'ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }'
+                )
+                subprocess.run(["powershell", "-Command", kill_ports], creationflags=subprocess.CREATE_NO_WINDOW)
+                self.append_log("  Done clearing locked processes.")
+            except Exception as e:
+                self.append_log(f"  Warning: Failed to clear locked processes: {e}")
+
             # Step 1: Extract Zip file
             self.lbl_status.config(text="Extracting application files...")
             self.append_log("Extracting paperfect_portable.zip...")
@@ -184,11 +208,16 @@ class PaperfectInstallerApp:
                         
                     out_path = os.path.join(target_dir, os.path.normpath(rel_name))
                     
+                    # Convert to absolute path and handle Windows long path prefix (\\?\)
+                    abs_out_path = os.path.abspath(out_path)
+                    if sys.platform == "win32" and not abs_out_path.startswith("\\\\?\\"):
+                        abs_out_path = "\\\\?\\" + abs_out_path
+                        
                     if file_info.endswith('/'):
-                        os.makedirs(out_path, exist_ok=True)
+                        os.makedirs(abs_out_path, exist_ok=True)
                     else:
-                        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                        with zip_ref.open(file_info) as source, open(out_path, "wb") as target_file:
+                        os.makedirs(os.path.dirname(abs_out_path), exist_ok=True)
+                        with zip_ref.open(file_info) as source, open(abs_out_path, "wb") as target_file:
                             shutil.copyfileobj(source, target_file)
                             
                     # Update progress
@@ -215,7 +244,8 @@ class PaperfectInstallerApp:
                 cwd=target_dir,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             
@@ -251,14 +281,14 @@ class PaperfectInstallerApp:
             
             desktop_dir = os.path.join(os.environ["USERPROFILE"], "Desktop")
             shortcut_path = os.path.join(desktop_dir, "Paperfect.lnk")
-            target_bat = os.path.normpath(os.path.join(target_dir, "启动程序.bat"))
+            target_exe = os.path.normpath(os.path.join(target_dir, "paperfect.exe"))
             icon_path = os.path.normpath(os.path.join(target_dir, "frontend", "ppt_editor", "favicon.svg")) # Optional
             
             # Powershell script to create shortcut
             ps_script = f'''
             $WshShell = New-Object -ComObject WScript.Shell
             $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
-            $Shortcut.TargetPath = "{target_bat}"
+            $Shortcut.TargetPath = "{target_exe}"
             $Shortcut.WorkingDirectory = "{target_dir}"
             $Shortcut.Description = "Start Paperfect AI Assistant"
             $Shortcut.Save()
@@ -267,7 +297,9 @@ class PaperfectInstallerApp:
             # Execute powershell
             proc_ps = subprocess.run(
                 ["powershell", "-Command", ps_script],
-                capture_output=True, text=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             if proc_ps.returncode == 0:

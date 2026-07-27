@@ -3,28 +3,28 @@
 AI Vision Annotator 是一款专为学术研讨会（AI 组会）及学术报告量身打造的**全自动架构图解析与智能排版标注工具**。
 传统的工具往往需要手动绘制各种连线和注解，而本项目结合了领先的视觉大语言模型（VLM）技术，能够一键对复杂的学术模型架构图进行精准拆解、结构定位，并生成高质量的本地化知识注解。
 
-## ✨ 核心特性 (Key Features)
+## 核心特性 (Key Features)
 
-- **🧠 深度结合文档语境的纯自动化解析** 
+- ** 深度结合文档语境的纯自动化解析** 
   结合外部输入的学术文献（如 Markdown 解析报告），自动识别图像中的重要模块。系统不仅仅停留于“看图说话”，更能基于研报提供深度的专有名词与原理解释。
   
-- **🎯 Qwen-VL 自适应标准坐标映射** 
+- ** Qwen-VL 自适应标准坐标映射** 
   彻底解决 AI 对图像位置分析容易产生“幻觉”的业界难题。服务端依靠标准化刻度的映射算法（Normalized Coordinate Projection），与前端的原始等比例 1:1 UI 进行深度链接，让射出的箭头犹如精准巡航般直击各个模块核心。
   
-- **📏 动态智能白底延展与排版 (Auto-Layout Engine)**
+- ** 动态智能白底延展与排版 (Auto-Layout Engine)**
   告别文字重叠灾难。系统会在用户上传学术原图后，自动向下融合出足够庞大的纯百“展览区”。之后后端排版引擎对截取的结构组件从左至右做精细的矩阵重划分，确保生成的数百字解说在任何情况下不会相互遮挡。
   
-- **📸 像素级纯净底边导出 (Smart Boundary Truncation)**
+- ** 像素级纯净底边导出 (Smart Boundary Truncation)**
   集成基于 HTML2Canvas 的动态深层 DOM 解析重计算算法，系统在出图（PNG导出）时能以毫米级精确切割下方的白边，最后输出一张包裹性完美的高分辨率大图，彻底免疫各种笔记本和显示幕的 CSS `Max-height` 回退缩放错位。
 
-## 🛠️ 技术栈 (Tech Stack)
+## ️ 技术栈 (Tech Stack)
 
 *   **前端**: React + TypeScript + Vite + Tailwind CSS + Lucide Icons + HTML2Canvas
 *   **后端**: Node.js + Express
 *   **AI 接口**: Silicon Flow (硅基流动) OpenAI 兼容结构代理
 *   **核心模型**: `Qwen/Qwen3-VL-235B-A22B-Thinking`
 
-## 🚀 快速启动指南 (Get Started)
+## 快速启动指南 (Get Started)
 
 ### 1. 安装项目依赖
 

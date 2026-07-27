@@ -186,7 +186,8 @@
         .spinner {
             width: 46px; height: 46px; border: 4px solid rgba(255, 255, 255, 0.05);
             border-top: 4px solid #60a5fa; border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 20px;
+            animation: spin 0.85s linear infinite !important; margin-bottom: 20px;
+            flex-shrink: 0;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .processing-text { line-height: 1.5; font-size: 13px; color: #94a3b8; font-weight: 500;}
@@ -371,7 +372,9 @@
                     <option value="cyan-light">Cyan Light</option>
                 </optgroup>
             </select>
-            <button class="icon-btn" onclick="toggleDarkLight()" title="切换昼夜模式" style="font-size:16px;">🌓</button>
+            <button class="icon-btn" id="theme-mode-btn" onclick="toggleDarkLight()" title="切换昼夜模式" style="font-size:16px; display:flex; align-items:center; justify-content:center;">
+                <span id="theme-mode-icon">🌙</span>
+            </button>
             <button class="icon-btn" id="cancel-manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter'; display: none;">取消</button>
             <button class="icon-btn" id="manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter';">管理</button>
             <button class="icon-btn" onclick="openSettings()" title="系统配置">
@@ -402,23 +405,29 @@
                     <input type="checkbox" class="card-checkbox" value="{{ book.name }}" data-type="book" onclick="updateDeleteBtnState(); event.stopPropagation();">
                 </div>
                 <div class="spinner"></div>
-                <div class="processing-text">正在解析</div>
-                <div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">{{ book.progress }}</div>
+                <div class="processing-text" style="font-size: 12px; color: var(--text-color); opacity: 0.8; margin-top: 10px;">正在解析...</div>
+                <div class="progress-bar-container" style="width: 80%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 10px 0; overflow: hidden;">
+                    <div class="progress-bar-fill" style="width: {{ book.percent or 5 }}%; height: 100%; background: var(--primary-accent); transition: width 0.4s ease;"></div>
+                </div>
+                <div class="processing-progress" style="font-size: 11px; color: var(--primary-accent); font-weight: bold; margin-bottom: 5px;">{{ book.progress }} ({{ book.percent or 5 }}%)</div>
                 <div class="processing-title">《{{ book.name }}》</div>
             </div>
             {% elif book.status == 'interrupted' %}
-            <div class="card interrupted" id="interrupted-{{ book.name }}-book" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+            <div class="card interrupted" id="interrupted-{{ book.name }}-book" style="position: relative; overflow: hidden; border: 1px solid rgba(239, 68, 68, 0.4);">
                 <div class="card-select-layer" style="z-index: 30;">
                     <input type="checkbox" class="card-checkbox" value="{{ book.name }}" data-type="book" onclick="updateDeleteBtnState(); event.stopPropagation();">
                 </div>
-                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
-                    <div style="margin-bottom:15px; text-align:center;">
-                        <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ book.name }}》</div>
-                    </div>
-                    <button class="resume-btn" onclick="resumeParse('{{ book.name }}', event)" style="background: var(--primary-accent); border:none; padding:8px 20px; border-radius:6px; color:var(--bg-color); font-weight:600; cursor:pointer; font-size:13px; transition:0.2s; z-index: 20;">
-                        继续
+                <div class="cover-wrapper" style="filter: grayscale(30%);">
+                    <img class="cover" src="/cover/{{ book.name }}" alt="cover">
+                </div>
+                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background: rgba(15, 23, 42, 0.88); color: #fff; padding: 10px; text-align: center;">
+                    <div style="color: #f87171; font-size: 24px; margin-bottom: 4px;">⚠️</div>
+                    <div style="color: #fca5a5; font-size: 12px; font-weight: bold; margin-bottom: 12px; padding: 0 10px;">《{{ book.name }}》<br><span style="font-size: 11px; font-weight: normal; opacity: 0.85;">解析异常 / 检查密钥</span></div>
+                    <button class="resume-btn" onclick="resumeParse('{{ book.name }}', event)" style="background: var(--primary-accent); border:none; padding:6px 16px; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer; font-size:12px; transition:0.2s; z-index: 20;">
+                        重试继续
                     </button>
                 </div>
+                <div class="title" title="{{ book.name }}" style="color: #ef4444;">《{{ book.name }}》</div>
             </div>
             {% else %}
             <div class="card" onclick="handleCardClick(event, '/chat/{{ book.name }}')">
@@ -443,22 +452,29 @@
                     <input type="checkbox" class="card-checkbox" value="{{ paper.name }}" data-type="paper" onclick="updateDeleteBtnState(); event.stopPropagation();">
                 </div>
                 <div class="spinner" style="border-top-color: #10b981;"></div>
-                <div class="processing-text">正在翻译与解析...</div>
+                <div class="processing-text" style="font-size: 12px; color: var(--text-color); opacity: 0.8; margin-top: 10px;">正在翻译与解析...</div>
+                <div class="progress-bar-container" style="width: 80%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 10px 0; overflow: hidden;">
+                    <div class="progress-bar-fill" style="width: {{ paper.percent or 5 }}%; height: 100%; background: #10b981; transition: width 0.4s ease;"></div>
+                </div>
+                <div class="processing-progress" style="font-size: 11px; color: #10b981; font-weight: bold; margin-bottom: 5px;">{{ paper.progress }} ({{ paper.percent or 5 }}%)</div>
                 <div class="processing-title">《{{ paper.name }}》</div>
             </div>
             {% elif paper.status == 'interrupted' %}
-            <div class="card interrupted" id="interrupted-{{ paper.name }}-paper" style="background: rgba(255,255,255,0.02); overflow: hidden;">
+            <div class="card interrupted" id="interrupted-{{ paper.name }}-paper" style="position: relative; overflow: hidden; border: 1px solid rgba(239, 68, 68, 0.4);">
                 <div class="card-select-layer" style="z-index: 30;">
                     <input type="checkbox" class="card-checkbox" value="{{ paper.name }}" data-type="paper" onclick="updateDeleteBtnState(); event.stopPropagation();">
                 </div>
-                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background:var(--card-bg); opacity: 0.95;">
-                    <div style="margin-bottom:15px; text-align:center;">
-                        <div class="processing-title" style="margin-top:5px; font-size:14px; color:var(--text-color); font-weight: bold; padding: 0 10px;">《{{ paper.name }}》</div>
-                    </div>
-                    <button class="resume-btn" onclick="resumeParse('{{ paper.name }}', event)" style="background: var(--primary-accent); border:none; padding:8px 20px; border-radius:6px; color:var(--bg-color); font-weight:600; cursor:pointer; font-size:13px; transition:0.2s; z-index: 20;">
-                        继续
+                <div class="cover-wrapper" style="border-bottom: 2px solid #ef4444; filter: grayscale(30%);">
+                    <img class="cover" src="/cover/{{ paper.name }}" alt="cover">
+                </div>
+                <div class="interrupted-overlay" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; background: rgba(15, 23, 42, 0.88); color: #fff; padding: 10px; text-align: center;">
+                    <div style="color: #f87171; font-size: 24px; margin-bottom: 4px;">⚠️</div>
+                    <div style="color: #fca5a5; font-size: 12px; font-weight: bold; margin-bottom: 12px; padding: 0 10px;">《{{ paper.name }}》<br><span style="font-size: 11px; font-weight: normal; opacity: 0.85;">解析异常 / 检查密钥</span></div>
+                    <button class="resume-btn" onclick="resumeParse('{{ paper.name }}', event)" style="background: #10b981; border:none; padding:6px 16px; border-radius:6px; color:#fff; font-weight:bold; cursor:pointer; font-size:12px; transition:0.2s; z-index: 20;">
+                        重试继续
                     </button>
                 </div>
+                <div class="title" title="{{ paper.name }}" style="color: #ef4444;">《{{ paper.name }}》</div>
             </div>
             {% else %}
             <div class="card" onclick="handleCardClick(event, '/chat/{{ paper.name }}')">
@@ -800,10 +816,14 @@
                         const newCard = document.createElement('div');
                         newCard.className = 'card processing new-processing-card';
                         newCard.id = `processing-${data.book_name}-${item_type}`;
+                        const accentColor = item_type === 'paper' ? '#10b981' : 'var(--primary-accent)';
                         newCard.innerHTML = `
                             <div class="spinner" ${item_type === 'paper' ? 'style="border-top-color: #10b981;"' : ''}></div>
-                            <div class="processing-text">${item_type === 'paper' ? '正在翻译与解析...' : '正在解析'}</div>
-                            ${item_type === 'book' ? `<div class="processing-progress" style="font-size: 13px; font-weight: bold; margin-top: 5px; color: var(--primary-accent);">获取进度...</div>` : ''}
+                            <div class="processing-text" style="font-size: 12px; color: var(--text-color); opacity: 0.8; margin-top: 10px;">${item_type === 'paper' ? '正在翻译与解析...' : '正在解析...'}</div>
+                            <div class="progress-bar-container" style="width: 80%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin: 10px 0; overflow: hidden;">
+                                <div class="progress-bar-fill" style="width: 5%; height: 100%; background: ${accentColor}; transition: width 0.4s ease;"></div>
+                            </div>
+                            <div class="processing-progress" style="font-size: 11px; color: ${accentColor}; font-weight: bold; margin-bottom: 5px;">准备中... (5%)</div>
                             <div class="processing-title">《${data.book_name}》</div>
                         `;
                         // Prepend new processing card
@@ -842,10 +862,14 @@
                     if (data.status === 'ready') {
                         // Backend finished! Refresh to render the new item thumbnail
                         window.location.reload(); 
-                    } else if (data.status === 'processing' && itemType === 'book') {
+                    } else if (data.status === 'processing') {
                         const progressEl = card.querySelector('.processing-progress');
                         if (progressEl && data.progress) {
-                            progressEl.innerText = data.progress;
+                            progressEl.innerText = `${data.progress} (${data.percent || 5}%)`;
+                        }
+                        const barEl = card.querySelector('.progress-bar-fill');
+                        if (barEl && data.percent !== undefined) {
+                            barEl.style.width = `${data.percent}%`;
                         }
                     } else if (data.status === 'interrupted') {
                         window.location.reload(); 
@@ -906,12 +930,22 @@
             } catch(e) {}
         }
         
+        function updateThemeModeIcon(themeName) {
+            const icon = document.getElementById('theme-mode-icon');
+            if (!icon) return;
+            const isLight = (themeName || '').includes('light') || themeName === 'cyan-light';
+            icon.textContent = isLight ? '🌙' : '☀️';
+        }
+
         function changeTheme(themeName) {
+            if (themeName === 'github-light' || themeName === 'light') themeName = 'cyan-light';
+            if (themeName === 'github-dark' || themeName === 'dark') themeName = 'antigravity';
+
             document.body.setAttribute('data-theme', themeName);
             localStorage.setItem('theme', themeName);
             
             // Record last selection per mode
-            if (themeName.includes('light')) {
+            if (themeName.includes('light') || themeName === 'cyan-light') {
                 localStorage.setItem('preferred_light', themeName);
                 localStorage.setItem('last_mode', 'light');
             } else {
@@ -923,25 +957,25 @@
             if (sel && sel.value !== themeName) {
                 sel.value = themeName;
             }
+            updateThemeModeIcon(themeName);
         }
 
         function toggleDarkLight() {
-            const currentMode = localStorage.getItem('last_mode') || 'dark';
-            if (currentMode === 'dark') {
-                const lightTheme = localStorage.getItem('preferred_light') || 'github-light';
-                changeTheme(lightTheme);
+            const current = localStorage.getItem('theme') || document.body.getAttribute('data-theme') || 'antigravity';
+            const isLight = current.includes('light') || current === 'cyan-light';
+            if (isLight) {
+                changeTheme(localStorage.getItem('preferred_dark') || 'antigravity');
             } else {
-                const darkTheme = localStorage.getItem('preferred_dark') || 'github-dark';
-                changeTheme(darkTheme);
+                changeTheme(localStorage.getItem('preferred_light') || 'cyan-light');
             }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            let activeTheme = localStorage.getItem('theme') || 'github-dark';
+            let activeTheme = localStorage.getItem('theme') || 'antigravity';
             
             // For backward compatibility with the old boolean format
-            if (activeTheme === 'light') activeTheme = 'github-light';
-            if (activeTheme === 'dark') activeTheme = 'github-dark';
+            if (activeTheme === 'light' || activeTheme === 'github-light') activeTheme = 'cyan-light';
+            if (activeTheme === 'dark' || activeTheme === 'github-dark') activeTheme = 'antigravity';
 
             changeTheme(activeTheme);
             ensurePromptOptions();

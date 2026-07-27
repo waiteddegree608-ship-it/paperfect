@@ -4,7 +4,15 @@ import asyncio
 import shutil
 import random
 from backend.core.config import get_base_dir, load_config
-from backend.services.file_manager import active_tasks
+from backend.services.file_manager import active_tasks, active_tasks_progress
+
+def get_python_executable():
+    import sys
+    if getattr(sys, 'frozen', False):
+        venv_python = os.path.join(get_base_dir(), "venv", "Scripts", "python.exe")
+        if os.path.exists(venv_python):
+            return venv_python
+    return sys.executable
 
 def force_print(*args, **kwargs):
     text = " ".join(map(str, args))
@@ -54,11 +62,16 @@ async def _read_stream(stream, prefix="", book_name=None):
 
 async def run_subprocess(name, cmd, cwd=None, book_name=None):
     force_print(f"[{name}] Starting: {' '.join(cmd)}")
+    import subprocess
+    creationflags = 0
+    if sys.platform == 'win32':
+        creationflags = subprocess.CREATE_NO_WINDOW
     process = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stderr=asyncio.subprocess.PIPE,
+        creationflags=creationflags
     )
     
     await asyncio.gather(
@@ -74,10 +87,108 @@ async def run_subprocess(name, cmd, cwd=None, book_name=None):
 
 async def async_run_builder(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative", ppt_lang: str = "zh"):
     task_id = f"{item_type}s_{book_name}"
+    
+    progress_map = {
+        "zh": {
+            "init": "初始化",
+            "parse": "解析文献",
+            "translate": "翻译文献",
+            "ppt": "生成PPT",
+            "annotate": "生成批注",
+            "finalize": "收尾"
+        },
+        "en": {
+            "init": "Initializing",
+            "parse": "Parsing",
+            "translate": "Translating",
+            "ppt": "Generating PPT",
+            "annotate": "Generating Annotations",
+            "finalize": "Finalizing"
+        }
+    }
+    lang = "en" if ppt_lang == "en" else "zh"
+    # Weighted multi-stage progress (parallel-safe: last writer no longer jumps to 90% forever)
+    # parse 40% + translate 10% + ppt 25% + annotate 25%  →  overall 0–100
+    stage_frac = {"parse": 0.0, "translate": 0.0, "ppt": 0.0, "annotate": 0.0}
+    stage_weights = {"parse": 40, "translate": 10, "ppt": 25, "annotate": 25}
+    current_label = progress_map[lang]["init"]
+
+    def publish_prog(stage_key=None, label_override=None):
+        nonlocal current_label
+        if label_override:
+            current_label = label_override
+        elif stage_key:
+            current_label = progress_map[lang].get(stage_key, current_label)
+        total = 5  # base after init
+        for k, w in stage_weights.items():
+            total += stage_frac.get(k, 0.0) * w
+        percent = int(max(5, min(99, round(total))))
+        active_tasks_progress[task_id] = {"percent": percent, "stage": current_label}
+
+    def update_prog(percent, stage_key):
+        """Legacy helper: map coarse checkpoints into stage fractions."""
+        # percent here is treated as 0-100 of that stage when stage_key known
+        mapping = {
+            "init": None,
+            "parse": "parse",
+            "translate": "translate",
+            "ppt": "ppt",
+            "annotate": "annotate",
+        }
+        sk = mapping.get(stage_key)
+        if stage_key == "init":
+            publish_prog("init")
+            return
+        if sk:
+            # Interpret classic checkpoints as stage completion ratios
+            # e.g. parse 15 → early, 35 → mid/late
+            if sk == "parse":
+                if percent <= 20:
+                    stage_frac["parse"] = max(stage_frac["parse"], 0.25)
+                elif percent <= 40:
+                    stage_frac["parse"] = max(stage_frac["parse"], 0.55)
+                else:
+                    stage_frac["parse"] = max(stage_frac["parse"], 1.0)
+            elif sk == "translate":
+                stage_frac["translate"] = max(stage_frac["translate"], min(1.0, percent / 100.0) if percent >= 50 else 0.3)
+            elif sk == "ppt":
+                if percent <= 60:
+                    stage_frac["ppt"] = max(stage_frac["ppt"], 0.15)
+                elif percent <= 80:
+                    stage_frac["ppt"] = max(stage_frac["ppt"], 0.55)
+                else:
+                    stage_frac["ppt"] = max(stage_frac["ppt"], 1.0)
+            elif sk == "annotate":
+                if percent <= 70:
+                    stage_frac["annotate"] = max(stage_frac["annotate"], 0.15)
+                elif percent <= 90:
+                    stage_frac["annotate"] = max(stage_frac["annotate"], 0.45)
+                else:
+                    stage_frac["annotate"] = max(stage_frac["annotate"], 1.0)
+            publish_prog(sk)
+
+    def set_stage_frac(stage_key, frac, label_key=None):
+        stage_frac[stage_key] = max(stage_frac.get(stage_key, 0.0), min(1.0, float(frac)))
+        publish_prog(label_key or stage_key)
+
+    async def crawl_stage(stage_key, start_frac, end_frac, seconds, stop_event):
+        """Slowly advance progress during long subprocesses so UI doesn't freeze at one %."""
+        steps = max(1, int(seconds / 2.5))
+        for i in range(steps):
+            if stop_event.is_set():
+                break
+            f = start_frac + (end_frac - start_frac) * ((i + 1) / steps)
+            set_stage_frac(stage_key, f, stage_key)
+            try:
+                await asyncio.sleep(2.5)
+            except asyncio.CancelledError:
+                break
+
+    update_prog(5, "init")
     try:
         if item_type == "book":
             script_path = os.path.join(get_base_dir(), "backend", "services", "universal_kb_builder.py")
-            await run_subprocess("Book Builder", [sys.executable, "-u", script_path, pdf_path], book_name=book_name)
+            await run_subprocess("Book Builder", [get_python_executable(), "-u", script_path, pdf_path], book_name=book_name)
         else:
             base_dir = get_base_dir()
             target_dir = os.path.join(base_dir, "data", "papers", book_name)
@@ -101,12 +212,21 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 if ppt_lang == "en":
                     force_print("[Translate] Target language is English. Skipping translation and copying original PDF.")
                     shutil.copy(pdf_path, translated_pdf)
+                    set_stage_frac("translate", 1.0, "translate")
                     return
+                set_stage_frac("translate", 0.1, "translate")
+                stop_ev = asyncio.Event()
+                crawl = asyncio.create_task(crawl_stage("translate", 0.1, 0.9, 90, stop_ev))
                 script_path = os.path.join(get_base_dir(), "backend", "services", "paper_translator.py")
                 try:
-                    await run_subprocess("Translate", [sys.executable, "-u", script_path, pdf_path, translated_pdf], book_name=book_name)
+                    await run_subprocess("Translate", [get_python_executable(), "-u", script_path, pdf_path, translated_pdf], book_name=book_name)
+                    set_stage_frac("translate", 1.0, "translate")
                 except Exception as e:
                     force_print(f"Translate failed, skipping translation: {e}")
+                    set_stage_frac("translate", 1.0, "translate")
+                finally:
+                    stop_ev.set()
+                    crawl.cancel()
 
             async def run_parse():
                 def parse_sync():
@@ -118,6 +238,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     images_dir = os.path.join(target_dir, "images")
                     os.makedirs(images_dir, exist_ok=True)
                     
+                    set_stage_frac("parse", 0.15, "parse")
                     pm.extract_semantic_figures(pdf_path, work_dir)
                     # Move figures to target_dir/images
                     figures_in_work = os.path.join(work_dir, "images")
@@ -125,6 +246,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                         for f in os.listdir(figures_in_work):
                             shutil.move(os.path.join(figures_in_work, f), os.path.join(images_dir, f))
                     
+                    set_stage_frac("parse", 0.40, "parse")
                     cfg = load_config()
                     parse_api_key_val = cfg.get("parse_api_key", [""])
                     valid_keys = [k for k in parse_api_key_val if k]
@@ -132,20 +254,31 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     base_url = cfg.get("parse_api_url", "https://api.siliconflow.cn/v1")
                     model = cfg.get("parse_model", "Qwen/Qwen3-VL-235B-A22B-Thinking") 
                     
+                    set_stage_frac("parse", 0.55, "parse")
                     bot = PaperReaderBot(api_key=api_key, base_url=base_url, model_name=model)
                     prompt = get_stage1_prompt(prompt_type, ppt_lang)
                     md_report = bot.get_stage1_md(pdf_path, prompt) 
                     
                     with open(kb_file, "w", encoding="utf-8") as f:
-                        f.write(md_report)
+                         f.write(md_report)
+                    set_stage_frac("parse", 1.0, "parse")
                     sys.path.pop(0)
 
                 force_print("\n========== Step 1: Extract Figures & Gen Deep Parsing MD ==========")
-                await asyncio.to_thread(parse_sync)
+                # Crawl parse progress while LLM runs (thread can't call set_stage mid-LLM easily)
+                stop_parse = asyncio.Event()
+                crawl_parse = asyncio.create_task(crawl_stage("parse", 0.55, 0.95, 120, stop_parse))
+                try:
+                    await asyncio.to_thread(parse_sync)
+                finally:
+                    stop_parse.set()
+                    crawl_parse.cancel()
+                set_stage_frac("parse", 1.0, "parse")
                 force_print("[Parse] Completed successfully.")
 
             # Step 2: PPT and Annotate in parallel
             async def run_ppt():
+                set_stage_frac("ppt", 0.08, "ppt")
                 force_print(f"\n========== Step 3: Compiling PPTX ==========")
                 ppt_script = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker", "generate_full_ppt.js")
                 figures_dir = os.path.join(target_dir, "images")
@@ -158,29 +291,39 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model, api_url, ppt_lang]
                 cwd = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker")
                 
+                stop_ev = asyncio.Event()
+                crawl = asyncio.create_task(crawl_stage("ppt", 0.10, 0.92, 180, stop_ev))
                 max_attempts = 8
-                for attempt in range(max_attempts):
-                    try:
-                        await run_subprocess("PPT Compiler", cmd, cwd=cwd)
-                        break
-                    except Exception as e:
-                        if attempt < max_attempts - 1:
-                            api_key = random.choice(parse_api_key_val) if parse_api_key_val else ""
-                            cmd[6] = api_key
-                            force_print(f"PPT Compilation failed: {e}. Retrying with key rotation ({attempt+2}/{max_attempts})...")
-                            await asyncio.sleep(8)
-                        else:
-                            force_print(f"PPT Compilation permanently failed: {e}")
-                            raise e
+                try:
+                    for attempt in range(max_attempts):
+                        try:
+                            await run_subprocess("PPT Compiler", cmd, cwd=cwd)
+                            break
+                        except Exception as e:
+                            if attempt < max_attempts - 1:
+                                api_key = random.choice(parse_api_key_val) if parse_api_key_val else ""
+                                cmd[6] = api_key
+                                force_print(f"PPT Compilation failed: {e}. Retrying with key rotation ({attempt+2}/{max_attempts})...")
+                                await asyncio.sleep(8)
+                            else:
+                                force_print(f"PPT Compilation permanently failed: {e}")
+                                raise e
+                finally:
+                    stop_ev.set()
+                    crawl.cancel()
+                set_stage_frac("ppt", 1.0, "ppt")
 
             async def run_annotate():
+                set_stage_frac("annotate", 0.08, "annotate")
                 force_print(f"\n========== Step 4: Generate Annotated PDF ==========")
                 annotator_script = os.path.join(base_dir, "backend", "services", "pdf_annotator.py")
                 # Copy md to work_dir so pdf_annotator can find it alongside raw pdf
                 temp_md = os.path.join(work_dir, f"{book_name}_KnowledgeBase.md")
                 shutil.copy(kb_file, temp_md)
+                stop_ev = asyncio.Event()
+                crawl = asyncio.create_task(crawl_stage("annotate", 0.10, 0.92, 240, stop_ev))
                 try:
-                    await run_subprocess("Annotator", [sys.executable, "-u", annotator_script, work_dir], book_name=book_name)
+                    await run_subprocess("Annotator", [get_python_executable(), "-u", annotator_script, work_dir], book_name=book_name)
                     ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
                     if os.path.exists(ann_in_work):
                         shutil.move(ann_in_work, annotated_pdf)
@@ -190,10 +333,15 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                         if os.path.exists(target_json):
                             os.remove(target_json)
                         shutil.move(json_in_work, target_json)
+                    set_stage_frac("annotate", 1.0, "annotate")
                 except Exception as e:
                     import traceback
                     force_print(f"Annotator failed: {repr(e)}")
                     traceback.print_exc()
+                    set_stage_frac("annotate", 1.0, "annotate")
+                finally:
+                    stop_ev.set()
+                    crawl.cancel()
 
             async def run_parse_and_downstream():
                 try:
@@ -213,6 +361,13 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
             
             # Wait for translation if it hasn't finished yet, so active_tasks isn't cleared too early
             await translate_task
+
+            # Brief 100% flash before cleanup
+            active_tasks_progress[task_id] = {
+                "percent": 100,
+                "stage": progress_map[lang].get("finalize", "Done")
+            }
+            await asyncio.sleep(0.6)
             
             # Clean up work_dir
             try:
@@ -231,6 +386,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
         force_print(f"Error running processing: {e}")
     finally:
         active_tasks.discard(task_id)
+        active_tasks_progress.pop(task_id, None)
 
 def submit_task(pdf_path: str, book_name: str, item_type: str, prompt_type: str = "提示词汇总", ppt_mode: str = "creative"):
     task_id = f"{item_type}s_{book_name}"

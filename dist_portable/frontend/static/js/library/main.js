@@ -1,13 +1,18 @@
-const { createApp, ref, computed, onMounted, watch, reactive } = Vue;
-const { createRouter, createWebHashHistory, useRouter, useRoute } = VueRouter;
+// Use window.* so this file works both as classic script and as module
+const { createApp, ref, computed, onMounted, onUnmounted, watch, reactive } = window.Vue;
+const { createRouter, createWebHashHistory, useRouter, useRoute } = window.VueRouter;
 
 // Reactive Language State for Vue template bindings
+// IMPORTANT: do NOT declare top-level `const t` / `let t` / `function t` —
+// i18n.js already defines global `function t`, and classic scripts share one
+// lexical scope. Redeclaring throws: "Identifier 't' has already been declared"
+// which aborts this entire file → Vue never mounts → blank shell UI.
 const currentLang = ref(getLang());
-const t = (key, params) => {
-    // Read currentLang value to register dependency in Vue templates
+function translate(key, params) {
+    // Touch currentLang so Vue templates re-render on language switch
     const _ = currentLang.value;
     return window.t(key, params);
-};
+}
 
 // Global language listener to update Vue reactive state
 window.addEventListener('lang-changed', (e) => {
@@ -23,6 +28,15 @@ const filterState = reactive({
     ccf: '',  // ccf_partition
     search: ''
 });
+
+/** Allow opening as soon as backend says can_open, or when not hard-blocked. */
+function canOpenDoc(doc) {
+    if (!doc) return false;
+    if (doc.can_open === true) return true;
+    if (doc.can_open === false && doc.status === 'processing') return false;
+    // Fallback for older API responses / interrupted partials
+    return doc.status !== 'processing' || !!(doc.has_annotated || doc.has_kb || doc.has_translated);
+}
 
 // Folder icon SVG (reusable)
 const FOLDER_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 6C2 4.89543 2.89543 4 4 4H9L11 6H20C21.1046 6 22 6.89543 22 8V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V6Z" fill="currentColor" opacity="0.85"/></svg>`;
@@ -62,10 +76,15 @@ const DashboardView = {
             <!-- Folder Inner View -->
             <template v-if="currentFolder">
                 <div class="file-grid" v-if="folderDocs.length > 0">
-                    <div class="file-card" v-for="doc in folderDocs" :key="doc.id" @click="openChat(doc.original_filename)" :title="getLang() === 'en' ? doc.title : (doc.zh_title || doc.title)">
+                    <div class="file-card" v-for="doc in folderDocs" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }" :title="getLang() === 'en' ? doc.title : (doc.zh_title || doc.title)">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
-                        <div class="file-cover">
-                            <img :src="'/cover/' + (doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" />
+                        <div class="file-cover" style="position: relative;">
+                            <img :src="'/cover/' + encodeURIComponent(doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" />
+                            <div v-if="doc.status === 'processing'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #fff; text-align: center; padding: 6px; z-index: 10;">
+                                <div class="spinner" style="width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
+                                <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
+                                <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
+                            </div>
                         </div>
                         <div class="file-title">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
                     </div>
@@ -106,9 +125,16 @@ const DashboardView = {
                     <div class="section-title">{{ t('dash.recent_title') }}</div>
                 </div>
                 <div class="recent-scroll">
-                    <div class="recent-card" v-for="doc in recentDocs" :key="doc.id" :title="doc.title" @click="openChat(doc.original_filename)">
+                    <div class="recent-card" v-for="doc in recentDocs" :key="doc.id" :title="doc.title" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
-                        <img :src="'/cover/' + (doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" />
+                        <div style="position: relative; width: 100%; height: 100%;">
+                            <img :src="'/cover/' + encodeURIComponent(doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" style="width: 100%; height: 100%; object-fit: cover;" />
+                            <div v-if="doc.status === 'processing'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.72); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #fff; text-align: center; padding: 5px; z-index: 10;">
+                                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
+                                <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
+                                <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
+                            </div>
+                        </div>
                         <div class="card-title-bar">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
                     </div>
                     <div v-if="recentDocs.length === 0" class="empty-state" style="padding: 40px; width: 100%;">
@@ -127,21 +153,78 @@ const DashboardView = {
         const folderDocs = ref([]);
         const contextTarget = ref(null);
 
+        let statusPollInterval = null;
+        const startStatusPolling = () => {
+            if (statusPollInterval) return;
+            statusPollInterval = setInterval(async () => {
+                await loadRecentDocs();
+                if (currentFolder.value) {
+                    await loadFolderDocs(currentFolder.value.id);
+                }
+                const hasProcessingRecent = recentDocs.value.some(d => d.status === 'processing');
+                const hasProcessingFolder = folderDocs.value.some(d => d.status === 'processing');
+                if (!hasProcessingRecent && !hasProcessingFolder) {
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                }
+            }, 3000);
+        };
+
+        const checkAndStartPolling = () => {
+            const hasProcessingRecent = recentDocs.value.some(d => d.status === 'processing');
+            const hasProcessingFolder = folderDocs.value.some(d => d.status === 'processing');
+            if (hasProcessingRecent || hasProcessingFolder) {
+                startStatusPolling();
+            } else {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                }
+            }
+        };
+
         const loadFolders = async () => {
-            const fRes = await fetch('/api/library/folders');
-            folders.value = await fRes.json();
+            try {
+                const fRes = await fetch('/api/library/folders');
+                if (!fRes.ok) throw new Error('folders ' + fRes.status);
+                folders.value = await fRes.json();
+            } catch (e) {
+                console.error('[Dashboard] loadFolders failed', e);
+                folders.value = folders.value || [];
+            }
         };
 
         const loadRecentDocs = async () => {
-            const dRes = await fetch('/api/library/documents');
-            const allDocs = await dRes.json();
-            recentDocs.value = allDocs.slice(-8).reverse();
+            try {
+                const dRes = await fetch('/api/library/documents');
+                if (!dRes.ok) throw new Error('documents ' + dRes.status);
+                const allDocs = await dRes.json();
+                recentDocs.value = Array.isArray(allDocs) ? allDocs.slice(-8).reverse() : [];
+                checkAndStartPolling();
+            } catch (e) {
+                console.error('[Dashboard] loadRecentDocs failed', e);
+                recentDocs.value = recentDocs.value || [];
+            }
         };
 
         const loadFolderDocs = async (folderId) => {
-            const dRes = await fetch('/api/library/documents?folder_id=' + folderId);
-            folderDocs.value = await dRes.json();
+            try {
+                const dRes = await fetch('/api/library/documents?folder_id=' + folderId);
+                if (!dRes.ok) throw new Error('folder docs ' + dRes.status);
+                folderDocs.value = await dRes.json();
+                checkAndStartPolling();
+            } catch (e) {
+                console.error('[Dashboard] loadFolderDocs failed', e);
+                folderDocs.value = [];
+            }
         };
+
+        onUnmounted(() => {
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+                statusPollInterval = null;
+            }
+        });
 
         onMounted(async () => {
             await Promise.all([loadFolders(), loadRecentDocs()]);
@@ -153,7 +236,7 @@ const DashboardView = {
                     const file = window.uploadSelectedFile;
                     if(!file) return;
                     
-                    uploadBtn.innerText = t('upload.uploading');
+                    uploadBtn.innerText = translate('upload.uploading');
                     uploadBtn.disabled = true;
                     
                     const formData = new FormData();
@@ -179,8 +262,8 @@ const DashboardView = {
                         await fetch('/api/library/upload', { method: 'POST', body: formData });
                         window.location.reload();
                     } catch (e) {
-                        alert(t('upload.error'));
-                        uploadBtn.innerText = t('upload.confirm');
+                        alert(translate('upload.error'));
+                        uploadBtn.innerText = translate('upload.confirm');
                         uploadBtn.disabled = false;
                     }
                 };
@@ -233,7 +316,7 @@ const DashboardView = {
                 ctxDelete.onclick = async () => {
                     hideContextMenu();
                     if (!contextTarget.value) return;
-                    if (confirm(t('folder.confirm_delete', {name: contextTarget.value.name}))) {
+                    if (confirm(translate('folder.confirm_delete', {name: contextTarget.value.name}))) {
                         await fetch('/api/library/folders/' + contextTarget.value.id, { method: 'DELETE' });
                         await loadFolders();
                     }
@@ -261,9 +344,9 @@ const DashboardView = {
             if (files.length > 0) {
                 const file = files[0];
                 window.uploadSelectedFile = file;
-                document.getElementById('selectedFileName').innerText = t('upload.current_file') + file.name;
-                document.getElementById('upload_folder_select').innerHTML = '<option value="">' + t('upload.folder_default') + '</option>' + folders.value.map(f => {
-                    const name = f.name === '默认文件夹' ? t('upload.folder_default') : f.name;
+                document.getElementById('selectedFileName').innerText = translate('upload.current_file') + file.name;
+                document.getElementById('upload_folder_select').innerHTML = '<option value="">' + translate('upload.folder_default') + '</option>' + folders.value.map(f => {
+                    const name = f.name === '默认文件夹' ? translate('upload.folder_default') : f.name;
                     return `<option value="${f.id}">${name}</option>`;
                 }).join('');
                 document.getElementById('uploadModal').classList.add('active');
@@ -275,9 +358,9 @@ const DashboardView = {
             const file = e.target.files[0];
             if(!file) return;
             window.uploadSelectedFile = file;
-            document.getElementById('selectedFileName').innerText = t('upload.current_file') + file.name;
-            document.getElementById('upload_folder_select').innerHTML = '<option value="">' + t('upload.folder_default') + '</option>' + folders.value.map(f => {
-                const name = f.name === '默认文件夹' ? t('upload.folder_default') : f.name;
+            document.getElementById('selectedFileName').innerText = translate('upload.current_file') + file.name;
+            document.getElementById('upload_folder_select').innerHTML = '<option value="">' + translate('upload.folder_default') + '</option>' + folders.value.map(f => {
+                const name = f.name === '默认文件夹' ? translate('upload.folder_default') : f.name;
                 return `<option value="${f.id}">${name}</option>`;
             }).join('');
             document.getElementById('uploadModal').classList.add('active');
@@ -290,7 +373,7 @@ const DashboardView = {
         
         const deleteDoc = async (e, id) => {
             e.stopPropagation();
-            if (confirm(t('confirm.delete_doc'))) {
+            if (confirm(translate('confirm.delete_doc'))) {
                 await fetch('/api/library/documents/' + id, { method: 'DELETE' });
                 recentDocs.value = recentDocs.value.filter(d => d.id !== id);
                 folderDocs.value = folderDocs.value.filter(d => d.id !== id);
@@ -333,10 +416,10 @@ const DashboardView = {
 
         return { 
             folders, recentDocs, isDragOver, currentFolder, folderDocs,
-            triggerUpload, handleUpload, openChat, deleteDoc,
+            triggerUpload, handleUpload, openChat, deleteDoc, canOpenDoc,
             onDragOver, onDragLeave, onDrop,
             enterFolder, exitFolder, openCreateFolder,
-            showContextMenu, folderColor, t, getLang
+            showContextMenu, folderColor, t: translate, getLang
         };
     }
 };
@@ -425,7 +508,7 @@ const AutoLayout = {
         </div>
     `,
     setup() {
-        return { filterState, t };
+        return { filterState, t: translate };
     }
 };
 
@@ -433,12 +516,20 @@ const AutoLayout = {
 const ListView = {
     template: `
         <div>
-            <!-- Real Data List -->
-            <div class="doc-list-item" v-for="doc in filteredDocuments" :key="doc.id" @click="openChat(doc.original_filename)">
+            <div class="doc-list-item" v-for="doc in filteredDocuments" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default', opacity: doc.status === 'processing' ? 0.92 : 1 }">
                 <button class="delete-btn" @click="deleteDoc($event, doc.id)" title="永久删除" style="right: 20px; top: 20px;">×</button>
-                <div class="doc-title">
+                <div class="doc-title" style="position: relative;">
                     {{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}
                     <div v-if="getLang() !== 'en' && doc.zh_title" style="font-size: 14px; color: var(--text-muted); font-weight: normal; margin-top: 5px;">{{ doc.title }}</div>
+                    
+                    <div v-if="doc.status === 'processing'" style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <div class="spinner" style="width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
+                        <span style="font-size: 12px; color: var(--primary-accent); font-weight: bold;">{{ doc.progress }} ({{ doc.percent }}%)</span>
+                        <div style="flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; max-width: 200px;">
+                            <div :style="{ width: doc.percent + '%' }" style="height: 100%; background: var(--primary-accent); transition: width 0.3s;"></div>
+                        </div>
+                        <span v-if="canOpenDoc(doc)" style="font-size: 11px; color: var(--text-muted);">{{ getLang() === 'en' ? 'Click to open (partial ready)' : '可点击打开（部分已就绪）' }}</span>
+                    </div>
                 </div>
                 
                 <!-- Display new metadata tags -->
@@ -472,9 +563,47 @@ const ListView = {
     `,
     setup() {
         const rawDocuments = ref([]);
-        onMounted(async () => {
+        
+        let statusPollInterval = null;
+        const startStatusPolling = () => {
+            if (statusPollInterval) return;
+            statusPollInterval = setInterval(async () => {
+                await loadDocuments();
+                const hasProcessing = rawDocuments.value.some(d => d.status === 'processing');
+                if (!hasProcessing) {
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                }
+            }, 3000);
+        };
+
+        const checkAndStartPolling = () => {
+            const hasProcessing = rawDocuments.value.some(d => d.status === 'processing');
+            if (hasProcessing) {
+                startStatusPolling();
+            } else {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                }
+            }
+        };
+
+        const loadDocuments = async () => {
             const dRes = await fetch('/api/library/documents');
             rawDocuments.value = await dRes.json();
+            checkAndStartPolling();
+        };
+
+        onMounted(async () => {
+            await loadDocuments();
+            
+            onUnmounted(() => {
+                if (statusPollInterval) {
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                }
+            });
         });
         
         const filteredDocuments = computed(() => {
@@ -526,7 +655,7 @@ const ListView = {
         
         const deleteDoc = async (e, id) => {
             e.stopPropagation();
-            if (confirm(t('confirm.delete_doc'))) {
+            if (confirm(translate('confirm.delete_doc'))) {
                 await fetch('/api/library/documents/' + id, { method: 'DELETE' });
                 rawDocuments.value = rawDocuments.value.filter(d => d.id !== id);
             }
@@ -713,7 +842,7 @@ const ListView = {
             return dict[val] || val;
         };
         
-        return { filteredDocuments, openChat, deleteDoc, parseKeywords, tMetadata, t, getLang };
+        return { filteredDocuments, openChat, deleteDoc, parseKeywords, tMetadata, t: translate, getLang, canOpenDoc };
     }
 };
 
@@ -1011,7 +1140,7 @@ const PromptsView = {
         };
 
         const createPrompt = async () => {
-            const name = window.prompt(t('prompt.new_dialog'));
+            const name = window.prompt(translate('prompt.new_dialog'));
             if (!name) return;
             const initContent = '## ' + name + '\n### Section 1\n';
             await fetch('/api/prompts/' + encodeURIComponent(name) + '?lang=' + currentLang.value, {
@@ -1041,13 +1170,13 @@ const PromptsView = {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({content: content})
             });
-            alert(t('prompt.save_ok'));
+            alert(translate('prompt.save_ok'));
             loadList();
         };
 
         const deletePrompt = async () => {
             if (!currentPrompt.value) return;
-            if (!confirm(t('prompt.confirm_delete', {name: currentPromptDisplayName.value}))) return;
+            if (!confirm(translate('prompt.confirm_delete', {name: currentPromptDisplayName.value}))) return;
             await fetch('/api/prompts/' + encodeURIComponent(currentPrompt.value), {method: 'DELETE'});
             currentPrompt.value = '';
             segments.value = [];
@@ -1074,7 +1203,7 @@ const PromptsView = {
             }
         });
 
-        return { promptNames, currentPrompt, segments, loadList, loadPrompt, createPrompt, savePrompt, deletePrompt, addSegment, t };
+        return { promptNames, currentPrompt, segments, loadList, loadPrompt, createPrompt, savePrompt, deletePrompt, addSegment, t: translate };
     }
 };
 
@@ -1112,10 +1241,10 @@ const app = createApp({
         // Refresh data-i18n elements in the DOM
         const refreshI18nDom = () => {
             document.querySelectorAll('[data-i18n]').forEach(el => {
-                el.textContent = t(el.getAttribute('data-i18n'));
+                el.textContent = translate(el.getAttribute('data-i18n'));
             });
             document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-                el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+                el.placeholder = translate(el.getAttribute('data-i18n-placeholder'));
             });
         };
 
@@ -1149,13 +1278,18 @@ const app = createApp({
             localStorage.setItem('theme', currentTheme.value);
         };
 
+        const isLightTheme = computed(() => {
+            const t = currentTheme.value || '';
+            return t.includes('light') || t === 'cyan-light';
+        });
+
         const toggleDarkLight = () => {
             const lightThemes = ['cyan-light'];
-            if (lightThemes.includes(currentTheme.value)) {
+            if (lightThemes.includes(currentTheme.value) || isLightTheme.value) {
                 currentTheme.value = localStorage.getItem('preferred_dark') || 'antigravity';
             } else {
                 localStorage.setItem('preferred_dark', currentTheme.value);
-                currentTheme.value = 'cyan-light';
+                currentTheme.value = localStorage.getItem('preferred_light') || 'cyan-light';
             }
             changeTheme();
         };
@@ -1218,7 +1352,7 @@ const app = createApp({
         const saveSettings = async () => {
             const btn = document.querySelector('#settingsSaveBtn');
             const originalText = btn ? btn.innerText : "";
-            if (btn) btn.innerText = t('settings.saving') || "保存中... / Saving...";
+            if (btn) btn.innerText = translate('settings.saving') || "保存中... / Saving...";
             try {
                 const keyInputs = document.querySelectorAll('.parse-key-input');
                 const parseKeysArray = Array.from(keyInputs).map(inp => inp.value.trim()).filter(v => v);
@@ -1251,13 +1385,13 @@ const app = createApp({
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload)
                 });
-                if (btn) btn.innerText = t('settings.saved') || "配置已保存！/ Saved!";
+                if (btn) btn.innerText = translate('settings.saved') || "配置已保存！/ Saved!";
                 setTimeout(() => {
                     closeSettings();
                     if (btn) btn.innerText = originalText;
                 }, 1000);
             } catch (e) {
-                if (btn) btn.innerText = t('settings.failed') || "保存失败 / Failed";
+                if (btn) btn.innerText = translate('settings.failed') || "保存失败 / Failed";
                 setTimeout(() => {
                     if (btn) btn.innerText = originalText;
                 }, 1500);
@@ -1267,7 +1401,7 @@ const app = createApp({
         // Expose saveSettings and addParseKeyInput globally so they can be called from onclick attributes in inline HTML
         window.saveSettings = saveSettings;
 
-        return { currentTheme, changeTheme, toggleDarkLight, currentMainTab, switchMainTab, lang, switchLang, t, openSettings, closeSettings, saveSettings };
+        return { currentTheme, changeTheme, toggleDarkLight, isLightTheme, currentMainTab, switchMainTab, lang, switchLang, t: translate, openSettings, closeSettings, saveSettings };
     }
 });
 

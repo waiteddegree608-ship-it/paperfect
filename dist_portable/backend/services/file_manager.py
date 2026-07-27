@@ -3,6 +3,7 @@ import shutil
 from backend.core.config import get_base_dir
 
 active_tasks = set()
+active_tasks_progress = {}
 
 def scan_items(item_type="book"):
     items = []
@@ -23,12 +24,22 @@ def scan_items(item_type="book"):
                     if os.path.exists(kb_file):
                         status = "ready"
                         progress = "100%"
+                        percent = 100
                     else:
                         status = "processing" if f"books_{b_name}" in active_tasks else "interrupted"
-                        progress = "抽取中"
+                        progress_info = active_tasks_progress.get(f"books_{b_name}", {"percent": 0, "stage": "准备中..."})
+                        progress = progress_info.get("stage", "抽取中")
+                        percent = progress_info.get("percent", 50)
                 else:
-                    status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{b_name}" in active_tasks else "interrupted")
-                    progress = "生成中"
+                    if os.path.exists(pptx_path):
+                        status = "ready"
+                        progress = "100%"
+                        percent = 100
+                    else:
+                        status = "processing" if f"papers_{b_name}" in active_tasks else "interrupted"
+                        progress_info = active_tasks_progress.get(f"papers_{b_name}", {"percent": 0, "stage": "准备中..."})
+                        progress = progress_info.get("stage", "生成中")
+                        percent = progress_info.get("percent", 50)
                     
                 items.append({
                     "name": b_name,
@@ -38,6 +49,7 @@ def scan_items(item_type="book"):
                     "kb_path": kb_file if os.path.exists(kb_file) else "",
                     "status": status,
                     "progress": progress,
+                    "percent": percent,
                     "type": item_type
                 })
     return items
@@ -57,12 +69,22 @@ def get_item_by_name(name):
                 if os.path.exists(kb_file):
                     status = "ready"
                     progress = "100%"
+                    percent = 100
                 else:
                     status = "processing" if f"books_{name}" in active_tasks else "interrupted"
-                    progress = "抽取中"
+                    progress_info = active_tasks_progress.get(f"books_{name}", {"percent": 0, "stage": "准备中..."})
+                    progress = progress_info.get("stage", "抽取中")
+                    percent = progress_info.get("percent", 50)
             else:
-                status = "ready" if os.path.exists(pptx_path) else ("processing" if f"papers_{name}" in active_tasks else "interrupted")
-                progress = "生成中"
+                if os.path.exists(pptx_path):
+                    status = "ready"
+                    progress = "100%"
+                    percent = 100
+                else:
+                    status = "processing" if f"papers_{name}" in active_tasks else "interrupted"
+                    progress_info = active_tasks_progress.get(f"papers_{name}", {"percent": 0, "stage": "准备中..."})
+                    progress = progress_info.get("stage", "生成中")
+                    percent = progress_info.get("percent", 50)
                 
             return {
                 "name": name,
@@ -72,6 +94,7 @@ def get_item_by_name(name):
                 "kb_path": kb_file if os.path.exists(kb_file) else "",
                 "status": status,
                 "progress": progress,
+                "percent": percent,
                 "type": item_type
             }
     return None

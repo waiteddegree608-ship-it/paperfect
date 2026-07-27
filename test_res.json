@@ -1,0 +1,40 @@
+{
+    "en_title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+    "zh_title": "U-Net：用于生物医学图像分割的卷积网络",
+    "venue": "MICCAI",
+    "paper_type": "研究",
+    "en_abstract": "There is large consent that successful training of deep networks requires many thousand annotated training samples. In this paper, we present a network and training strategy that relies on the strong use of data augmentation to use the available annotated samples more efficiently. The architecture consists of a contracting path to capture context and a symmetric expanding path that enables precise localization. We show that such a network can be trained end-to-end from very few images and outperforms the prior best method (a sliding-window convolutional network) on the ISBI challenge for segmentation of neuronal structures in electron microscopic stacks. Using the same network trained on transmitted light microscopy images (phase contrast and DIC) we won the ISBI cell tracking challenge 2015 in these categories by a large margin. Moreover, the network is fast. Segmentation of a 512x512 image takes less than a second on a recent GPU. The full implementation (based on Caffe) and the trained networks are available at http://lmb.informatik.uni-freiburg.de/people/ronneber/u-net .",
+    "abstract": "人们普遍认同，成功训练深度网络需要数千个带标注的训练样本。在本文中，我们提出了一种网络和训练策略，该策略强烈依赖数据增强来更高效地利用可用的带标注样本。该架构由一个用于捕获上下文的收缩路径和一个用于实现精确定位的对称扩展路径组成。我们表明，这种网络可以从极少的图像中进行端到端训练，并且在ISBI挑战赛中，用于电子显微镜堆栈中神经元结构的分割，其性能超过了以往最好的方法（滑动窗口卷积网络）。使用在透射光显微镜图像（相差和DIC）上训练的同一网络，我们在2015年ISBI细胞跟踪挑战赛的这些类别中以巨大优势获胜。此外，该网络速度很快。在最新的GPU上，对512x512图像的分割只需不到一秒钟的时间。完整的实现（基于Caffe）和训练好的网络可在 http://lmb.informatik.uni-freiburg.de/people/ronneber/u-net 获取。",
+    "en_keywords": [
+        "U-Net",
+        "Biomedical Image Segmentation",
+        "Convolutional Networks",
+        "Data Augmentation",
+        "Deep Learning"
+    ],
+    "zh_keywords": [
+        "深度学习",
+        "U-Net",
+        "数据增强",
+        "生物医学图像分割",
+        "卷积网络"
+    ],
+    "research_field": {
+        "zh": "计算机视觉",
+        "en": "Computer Vision"
+    },
+    "research_direction": {
+        "zh": "生物医学图像分割",
+        "en": "Biomedical Image Segmentation"
+    },
+    "keywords": [
+        "深度学习",
+        "U-Net",
+        "数据增强",
+        "生物医学图像分割",
+        "卷积网络"
+    ],
+    "ccf_partition": "B",
+    "jcr_partition": "",
+    "core_type": ""
+}
