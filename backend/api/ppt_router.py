@@ -81,7 +81,7 @@ def _is_ellipse(shape) -> bool:
             return False
 
 
-@router.get("/api/ppt_export_json/{book_name}")
+@router.get("/api/ppt_export_json/{book_name:path}")
 async def export_json_for_pptx_main(book_name: str):
     """Convert PPTX → JSON for the in-app web editor.
 
@@ -89,8 +89,11 @@ async def export_json_for_pptx_main(book_name: str):
     with the text, otherwise the editor only shows naked text + blue connector arrows.
     """
     try:
+        from urllib.parse import unquote
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+        book_name = unquote(book_name or "").strip().strip("/")
 
         papers_dir = os.path.join(get_base_dir(), "data", "papers")
         textbooks_dir = os.path.join(get_base_dir(), "data", "textbooks")
@@ -100,7 +103,22 @@ async def export_json_for_pptx_main(book_name: str):
             pptx_path = os.path.join(textbooks_dir, book_name, "pptx", f"{book_name}_Full_Presentation.pptx")
 
         if not os.path.exists(pptx_path):
-            return {"error": "PPTX not found"}
+            # fuzzy match folder name (en-dash / truncated titles)
+            for root in (papers_dir, textbooks_dir):
+                if not os.path.isdir(root):
+                    continue
+                for d in os.listdir(root):
+                    if d == book_name or d.startswith(book_name[:40]) or book_name.startswith(d[:40]):
+                        cand = os.path.join(root, d, "pptx", f"{d}_Full_Presentation.pptx")
+                        if os.path.exists(cand):
+                            pptx_path = cand
+                            book_name = d
+                            break
+                if os.path.exists(pptx_path):
+                    break
+
+        if not os.path.exists(pptx_path):
+            return {"error": f"PPTX not found for {book_name!r}"}
 
         prs = Presentation(pptx_path)
         # 96 CSS-px per inch (frontend multiplies by 1280/960 to canvas)

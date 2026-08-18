@@ -1,16 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { 
-  Image as ImageIcon, 
   MousePointer2, 
   ArrowRight, 
   Type, 
   Trash2, 
-  Upload, 
-  FileBox,
-  MonitorPlay
+  MonitorPlay,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Undo2,
+  Redo2,
+  Copy,
+  Minus,
+  Plus,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
-import pptxgen from 'pptxgenjs';
 
 type Tool = 'select' | 'arrow' | 'text';
 
@@ -54,7 +60,6 @@ interface SlideData {
 // STANDARDIZED CANVAS DIMENSIONS (16:9 Aspect Ratio)
 const SLIDE_WIDTH = 1280;
 const SLIDE_HEIGHT = 720;
-const PX_TO_INCH = 128; // pptxgenjs uses 10 x 5.625 inches for 16:9 by default. (1280/10 = 128)
 // -------------------------------------------------------------
 
 const App: React.FC = () => {
@@ -67,19 +72,17 @@ const App: React.FC = () => {
 
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [isDrawing, setIsDrawing] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeColor, setActiveColor] = useState('#ef4444');
-  const activeFontSize = 24;
-  const activeStrokeWidth = 3;
+  const [activeColor, setActiveColor] = useState('#3b82f6');
+  const [activeFontSize, setActiveFontSize] = useState(16);
+  const [activeStrokeWidth, setActiveStrokeWidth] = useState(2);
+  const [history, setHistory] = useState<CanvasElement[][]>([]);
+  const [future, setFuture] = useState<CanvasElement[][]>([]);
   
-  // To handle the fixed size canvas responsively on screen
   const [viewScale, setViewScale] = useState(1);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  
   const canvasRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const [startPoint, setStartPoint] = useState({ x: 0, y: 0 });
+  const [, setStartPoint] = useState({ x: 0, y: 0 });
   const lastPointerRef = useRef<{x: number, y: number} | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [draggingElementId, setDraggingElementId] = useState<string | null>(null);
@@ -113,9 +116,22 @@ const App: React.FC = () => {
 
     const fetchPpt = async () => {
       try {
-        const port = window.location.port === '8081' ? '8900' : window.location.port;
-        const res = await fetch(`http://${window.location.hostname}:${port}/api/ppt_export_json/${encodeURIComponent(book)}`);
+        // Same-origin when embedded under FastAPI (port 8900). Only Vite dev (8081) needs absolute backend URL.
+        const isViteDev = window.location.port === '8081';
+        const apiUrl = isViteDev
+          ? `http://${window.location.hostname}:8900/api/ppt_export_json/${encodeURIComponent(book)}`
+          : `/api/ppt_export_json/${encodeURIComponent(book)}`;
+        const res = await fetch(apiUrl);
+        if (!res.ok) {
+          console.error('PPT export HTTP', res.status, await res.text());
+          return;
+        }
         const json = await res.json();
+        if (json.error) {
+          console.error('PPT export error:', json.error);
+          alert(json.error);
+          return;
+        }
         
         if (json.slides && json.slides.length > 0) {
           const parsedSlides: SlideData[] = json.slides.map((s: any) => {
@@ -344,61 +360,92 @@ const App: React.FC = () => {
     return () => { if (canvas) canvas.removeEventListener('touchmove', handlePreventScroll); };
   }, []);
 
-  // Update scale to fit the fixed 1280x720 canvas into the working area
+  // Fit fixed 1280×720 canvas into workspace (no outer page scroll)
   useEffect(() => {
     const handleResize = () => {
       if (workspaceRef.current) {
         const workspaceRect = workspaceRef.current.getBoundingClientRect();
-        const availableW = workspaceRect.width - 64; 
-        const availableH = workspaceRect.height - 64;
-        const scaleW = availableW / SLIDE_WIDTH;
-        const minScale = Math.max(0.1, scaleW);
-        setViewScale(minScale);
+        const pad = 24;
+        const availableW = Math.max(120, workspaceRect.width - pad);
+        const availableH = Math.max(120, workspaceRect.height - pad);
+        const scale = Math.min(availableW / SLIDE_WIDTH, availableH / SLIDE_HEIGHT);
+        setViewScale(Math.max(0.12, Math.min(scale, 1.25)));
       }
     };
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [slideImage]);
+  }, [slideImage, allSlides.length]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          // Scale it to fit the upper part of the slide, max bounds: 1000 x 500
-          const MAX_W = 1000;
-          const MAX_H = 500;
-          let w = img.width;
-          let h = img.height;
-          
-          if (w > MAX_W || h > MAX_H) {
-             const ratioMax = MAX_W / MAX_H;
-             const ratioImg = w / h;
-             if (ratioImg > ratioMax) { w = MAX_W; h = MAX_W / ratioImg; }
-             else { h = MAX_H; w = MAX_H * ratioImg; }
-          }
-          
-          const x = (SLIDE_WIDTH - w) / 2;
-          const y = 30; // 30px top margin
-          
-          setSlideImage({
-            data: dataUrl,
-            intrinsicWidth: img.width,
-            intrinsicHeight: img.height,
-            x: Math.round(x),
-            y: Math.round(y),
-            width: Math.round(w),
-            height: Math.round(h)
-          });
-        };
-        img.src = dataUrl;
+  const pushHistory = (next: CanvasElement[]) => {
+    setHistory(h => [...h.slice(-40), elements.map(e => ({ ...e } as CanvasElement))]);
+    setFuture([]);
+    setElements(next);
+  };
+
+  const undo = () => {
+    if (!history.length) return;
+    const prev = history[history.length - 1];
+    setFuture(f => [elements.map(e => ({ ...e } as CanvasElement)), ...f].slice(0, 40));
+    setHistory(h => h.slice(0, -1));
+    setElements(prev);
+  };
+
+  const redo = () => {
+    if (!future.length) return;
+    const next = future[0];
+    setHistory(h => [...h, elements.map(e => ({ ...e } as CanvasElement))]);
+    setFuture(f => f.slice(1));
+    setElements(next);
+  };
+
+  const duplicateSelected = () => {
+    const selected = elements.filter(el => el.isSelected);
+    if (!selected.length) return;
+    const clones = selected.map(el => {
+      if (el.type === 'text') {
+        const t = el as TextElement;
+        return { ...t, id: generateId(), x: t.x + 16, y: t.y + 16, isSelected: true, isEditing: false };
+      }
+      const a = el as ArrowElement;
+      return {
+        ...a,
+        id: generateId(),
+        startX: a.startX + 16,
+        startY: a.startY + 16,
+        endX: a.endX + 16,
+        endY: a.endY + 16,
+        isSelected: true,
       };
-      reader.readAsDataURL(file);
-    }
+    });
+    pushHistory([
+      ...elements.map(el => ({ ...el, isSelected: false } as CanvasElement)),
+      ...clones as CanvasElement[],
+    ]);
+  };
+
+  const bumpFontSize = (delta: number) => {
+    setActiveFontSize(s => Math.min(48, Math.max(10, s + delta)));
+    const next = elements.map(el => {
+      if (el.isSelected && el.type === 'text') {
+        const t = el as TextElement;
+        return { ...t, fontSize: Math.min(48, Math.max(10, (t.fontSize || 16) + delta)) };
+      }
+      return el;
+    });
+    if (next.some((el, i) => el !== elements[i])) pushHistory(next);
+  };
+
+  const bumpStroke = (delta: number) => {
+    setActiveStrokeWidth(s => Math.min(8, Math.max(1, s + delta)));
+    const next = elements.map(el => {
+      if (el.isSelected && el.type === 'arrow') {
+        const a = el as ArrowElement;
+        return { ...a, width: Math.min(8, Math.max(1, (a.width || 2) + delta)) };
+      }
+      return el;
+    });
+    if (next.some((el, i) => el !== elements[i])) pushHistory(next);
   };
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -436,7 +483,7 @@ const App: React.FC = () => {
         color: activeColor, width: activeStrokeWidth,
         isSelected: false
       };
-      setElements([...elements, newArrow]);
+      pushHistory([...elements.map(el => ({ ...el, isSelected: false })), newArrow]);
     } else if (currentTool === 'text') {
       const newText: TextElement = {
         id: generateId(), type: 'text',
@@ -444,7 +491,7 @@ const App: React.FC = () => {
         text: '', color: activeColor, fontSize: activeFontSize,
         isEditing: true, isSelected: true
       };
-      setElements([...elements.map(el => ({ ...el, isSelected: false })), newText]);
+      pushHistory([...elements.map(el => ({ ...el, isSelected: false })), newText]);
       setCurrentTool('select');
     }
   };
@@ -537,115 +584,8 @@ const App: React.FC = () => {
   };
 
   const deleteSelected = () => {
-    setElements(prev => prev.filter(el => !el.isSelected));
-  };
-
-  
-  // =========================================================
-  // NATIVE PPTX EXPORT ENGINE
-  const exportPPTX = async () => {
-    saveCurrentSlide(); // flush current pending edits
-    
-    setTimeout(async () => {
-      const pres = new pptxgen();
-      pres.layout = 'LAYOUT_16x9'; 
-      
-      allSlides.forEach(slideData => {
-          const slide = pres.addSlide();
-          slide.background = { color: 'FFFFFF' };
-
-          if (slideData.slideImage) {
-            slide.addImage({
-              data: slideData.slideImage.data,
-              x: slideData.slideImage.x / PX_TO_INCH,
-              y: slideData.slideImage.y / PX_TO_INCH,
-              w: slideData.slideImage.width / PX_TO_INCH,
-              h: slideData.slideImage.height / PX_TO_INCH
-            });
-          }
-
-          slideData.elements.forEach(el => {
-            if (el.type === 'text' && (el as TextElement).text.trim()) {
-               const t = el as TextElement;
-               slide.addText(t.text, {
-                  x: t.x / PX_TO_INCH,
-                  y: t.y / PX_TO_INCH,
-                  w: (t.maxWidth || 250) / PX_TO_INCH,
-                  h: 0.5,
-                  fontSize: t.fontSize * 0.75,
-                  fontFace: 'Arial',
-                  color: t.color.replace('#', ''),
-                  bold: true,
-                  valign: "top"
-               });
-            }
-            else if (el.type === 'arrow') {
-               const a = el as ArrowElement;
-               let w = (a.endX - a.startX) / PX_TO_INCH;
-               let h = (a.endY - a.startY) / PX_TO_INCH;
-               let x = a.startX / PX_TO_INCH;
-               let y = a.startY / PX_TO_INCH;
-               
-               let flipH = w < 0;
-               let flipV = h < 0;
-
-               slide.addShape(pres.ShapeType.line, {
-                  x: flipH ? x + w : x,
-                  y: flipV ? y + h : y,
-                  w: Math.max(Math.abs(w), 0.01),
-                  h: Math.max(Math.abs(h), 0.01),
-                  flipH,
-                  flipV,
-                  line: { color: a.color.replace('#',''), width: a.width, endArrowType: "triangle" }
-               });
-            }
-          });
-      });
-
-      try {
-        await pres.writeFile({ fileName: `AI-Presentation-${new Date().getTime()}.pptx` });
-      } catch (err) {
-        console.error("PPTX Export Error:", err);
-        alert("Export failed. See console.");
-      }
-    }, 100);
-  };
-  // =========================================================
-
-
-  const loadAIPayload = async () => {
-    if (!slideImage) { alert("Please upload an image first."); return; }
-
-    setIsAnalyzing(true);
-    try {
-      const backendPort = (window.location.port === '8081' || window.location.port === '8000') ? '8900' : window.location.port;
-      const response = await fetch(`http://${window.location.hostname}:${backendPort}/api/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: slideImage.data,
-          slideWidth: SLIDE_WIDTH,
-          slideHeight: SLIDE_HEIGHT,
-          imgX: slideImage.x,
-          imgY: slideImage.y,
-          imgW: slideImage.width,
-          imgH: slideImage.height,
-          book_name: new URLSearchParams(window.location.search).get('book') || ""
-        })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setElements(prev => [...prev, ...data.map((d: any) => ({ ...d, isSelected: false, isEditing: false }))]);
-      } else {
-        alert("Error analyzing image.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Error connecting to AI server.");
-    } finally {
-      setIsAnalyzing(false);
-    }
+    if (!elements.some(el => el.isSelected)) return;
+    pushHistory(elements.filter(el => !el.isSelected));
   };
 
   useEffect(() => {
@@ -653,116 +593,149 @@ const App: React.FC = () => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
         return;
       }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (mod && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+      if (mod && e.key === 'd') { e.preventDefault(); duplicateSelected(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         deleteSelected();
       } else if (e.key === 'ArrowLeft') {
         switchSlide(currentSlideIndex - 1);
       } else if (e.key === 'ArrowRight') {
         switchSlide(currentSlideIndex + 1);
+      } else if (e.key === 'v' || e.key === 'V') {
+        setCurrentTool('select');
+      } else if (e.key === 'a' || e.key === 'A') {
+        setCurrentTool('arrow');
+      } else if (e.key === 't' || e.key === 'T') {
+        setCurrentTool('text');
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [elements, currentSlideIndex, allSlides.length]);
+  }, [elements, currentSlideIndex, allSlides.length, history, future]);
+
+  const hasSelection = elements.some(el => el.isSelected);
+  const bookLabel = new URLSearchParams(window.location.search).get('book') || 'Paperfect PPT';
 
   return (
-    <div className="ppt-shell flex flex-col h-screen w-full font-sans p-4 gap-4 overflow-hidden">
-      {/* Compact Toolbar */}
-      <div className="ppt-toolbar flex flex-row flex-nowrap items-center gap-2 border rounded-xl px-3 py-2 z-10 w-full shrink-0 overflow-x-auto whitespace-nowrap scrollbar-thin select-none">
-        
-        {/* Navigation */}
-        {allSlides.length > 0 && (
-          <div className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1 shrink-0">
-            <button onClick={() => switchSlide(currentSlideIndex - 1)} disabled={currentSlideIndex === 0} className="px-1.5 py-0.5 text-slate-400 hover:text-white disabled:opacity-30 text-xs font-bold">&lt;</button>
-            <span className="text-xs font-semibold text-slate-200 min-w-[70px] text-center">Slide {currentSlideIndex + 1} / {allSlides.length}</span>
-            <button onClick={() => switchSlide(currentSlideIndex + 1)} disabled={currentSlideIndex === allSlides.length - 1} className="px-1.5 py-0.5 text-slate-400 hover:text-white disabled:opacity-30 text-xs font-bold">&gt;</button>
-          </div>
-        )}
-
-        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
-
-        {/* Tools */}
-        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 shrink-0">
-          <button 
-            className={`p-1.5 rounded transition-all ${currentTool === 'select' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            onClick={() => setCurrentTool('select')} title="Select/Move Tool"
-          ><MousePointer2 size={16} /></button>
-          <button 
-            className={`p-1.5 rounded transition-all ${currentTool === 'arrow' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            onClick={() => setCurrentTool('arrow')} title="Draw Arrow Tool"
-          ><ArrowRight size={16} /></button>
-          <button 
-            className={`p-1.5 rounded transition-all ${currentTool === 'text' ? 'bg-[#6E88BD] text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-            onClick={() => setCurrentTool('text')} title="Text Tool"
-          ><Type size={16} /></button>
-        </div>
-
-        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
-
-        {/* Colors & Delete */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-            {colors.map(color => (
-              <button
-                key={color}
-                className={`w-5 h-5 rounded-full transition-transform ${activeColor === color ? 'scale-110 border border-white shadow-md' : 'border border-slate-700 hover:scale-105'}`}
-                style={{ backgroundColor: color }}
-                onClick={() => {
-                  setActiveColor(color);
-                  setElements(elements.map(el => el.isSelected ? { ...el, color } : el));
-                }}
-              />
-            ))}
-          </div>
-          <button
-            className="p-1.5 bg-rose-500/10 text-rose-400 rounded-lg hover:bg-rose-500/20 transition-colors border border-rose-500/20 flex items-center justify-center disabled:opacity-40 shrink-0"
-            onClick={deleteSelected} disabled={!elements.some(el => el.isSelected)} title="Delete Selected"
-          ><Trash2 size={15} /></button>
-        </div>
-
-        <div className="w-px h-5 bg-slate-800 shrink-0 mx-1"></div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <label className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-750 transition-all rounded-lg cursor-pointer text-xs font-semibold text-slate-200">
-            <Upload size={14} />
-            <span>Load Image</span>
-            <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
-          </label>
-          <button 
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#3A9F83] hover:bg-[#348e75] text-white transition-all rounded-lg text-xs font-semibold disabled:opacity-40"
-            onClick={loadAIPayload} disabled={!slideImage || isAnalyzing}
-          >
-            <span>{isAnalyzing ? "AI Calculating..." : "Auto Layout PPT"}</span>
+    <div className="ppt-shell flex flex-col h-screen w-full font-sans p-3 gap-3 overflow-hidden">
+      {/* Wrapping toolbar: groups flow to next row when narrow — no clip / no H-scroll */}
+      <div className="ppt-toolbar z-20 select-none" role="toolbar" aria-label="PPT editor tools">
+        <div className="ppt-toolbar-group" title="Slides">
+          <button type="button" className="ppt-tb-btn" disabled={currentSlideIndex <= 0} onClick={() => switchSlide(0)} title="First slide">
+            <ChevronsLeft size={15} />
           </button>
-          <button 
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#C6945D] hover:bg-[#b28452] text-white transition-all rounded-lg text-xs font-semibold disabled:opacity-40"
-            onClick={exportPPTX} disabled={!slideImage && elements.length === 0}
-          >
-            <FileBox size={14} />
-            <span>Export Native .PPTX</span>
+          <button type="button" className="ppt-tb-btn" disabled={currentSlideIndex <= 0} onClick={() => switchSlide(currentSlideIndex - 1)} title="Previous (←)">
+            <ChevronLeft size={15} />
+          </button>
+          <span className="ppt-tb-label">
+            {allSlides.length ? `${currentSlideIndex + 1}/${allSlides.length}` : '—'}
+          </span>
+          <button type="button" className="ppt-tb-btn" disabled={!allSlides.length || currentSlideIndex >= allSlides.length - 1} onClick={() => switchSlide(currentSlideIndex + 1)} title="Next (→)">
+            <ChevronRight size={15} />
+          </button>
+          <button type="button" className="ppt-tb-btn" disabled={!allSlides.length || currentSlideIndex >= allSlides.length - 1} onClick={() => switchSlide(allSlides.length - 1)} title="Last slide">
+            <ChevronsRight size={15} />
           </button>
         </div>
+
+        <div className="ppt-toolbar-group" title="Tools">
+          <button type="button" className={`ppt-tb-btn ${currentTool === 'select' ? 'active' : ''}`} onClick={() => setCurrentTool('select')} title="Select / Move (V)">
+            <MousePointer2 size={15} />
+          </button>
+          <button type="button" className={`ppt-tb-btn ${currentTool === 'arrow' ? 'active' : ''}`} onClick={() => setCurrentTool('arrow')} title="Connector / Arrow (A)">
+            <ArrowRight size={15} />
+          </button>
+          <button type="button" className={`ppt-tb-btn ${currentTool === 'text' ? 'active' : ''}`} onClick={() => setCurrentTool('text')} title="Text (T)">
+            <Type size={15} />
+          </button>
+        </div>
+
+        <div className="ppt-toolbar-group" title="History">
+          <button type="button" className="ppt-tb-btn" disabled={!history.length} onClick={undo} title="Undo (Ctrl+Z)">
+            <Undo2 size={15} />
+          </button>
+          <button type="button" className="ppt-tb-btn" disabled={!future.length} onClick={redo} title="Redo (Ctrl+Y)">
+            <Redo2 size={15} />
+          </button>
+          <button type="button" className="ppt-tb-btn" disabled={!hasSelection} onClick={duplicateSelected} title="Duplicate (Ctrl+D)">
+            <Copy size={15} />
+          </button>
+          <button type="button" className="ppt-tb-btn danger" disabled={!hasSelection} onClick={deleteSelected} title="Delete">
+            <Trash2 size={15} />
+          </button>
+        </div>
+
+        <div className="ppt-toolbar-group" title="Color">
+          {colors.map(color => (
+            <button
+              type="button"
+              key={color}
+              className={`ppt-color-dot ${activeColor === color ? 'active' : ''}`}
+              style={{ backgroundColor: color, boxShadow: color === '#ffffff' ? 'inset 0 0 0 1px #cbd5e1' : undefined }}
+              onClick={() => {
+                setActiveColor(color);
+                const next = elements.map(el => el.isSelected ? { ...el, color } as CanvasElement : el);
+                if (next.some((el, i) => el !== elements[i])) pushHistory(next);
+              }}
+              title={color}
+            />
+          ))}
+        </div>
+
+        <div className="ppt-toolbar-group" title="Text size">
+          <button type="button" className="ppt-tb-btn" onClick={() => bumpFontSize(-2)} title="Smaller text">
+            <Minus size={14} />
+          </button>
+          <span className="ppt-tb-label" style={{ minWidth: 28 }}>{activeFontSize}</span>
+          <button type="button" className="ppt-tb-btn" onClick={() => bumpFontSize(2)} title="Larger text">
+            <Plus size={14} />
+          </button>
+        </div>
+
+        <div className="ppt-toolbar-group" title="Line width">
+          <button type="button" className="ppt-tb-btn" onClick={() => bumpStroke(-1)} title="Thinner line">
+            <Minus size={14} />
+          </button>
+          <span className="ppt-tb-label" style={{ minWidth: 22 }}>{activeStrokeWidth}</span>
+          <button type="button" className="ppt-tb-btn" onClick={() => bumpStroke(1)} title="Thicker line">
+            <Plus size={14} />
+          </button>
+        </div>
+
+        <div className="ppt-toolbar-group" title="Zoom">
+          <button type="button" className="ppt-tb-btn" onClick={() => setViewScale(s => Math.max(0.12, +(s - 0.08).toFixed(2)))} title="Zoom out">
+            <ZoomOut size={15} />
+          </button>
+          <span className="ppt-tb-label" style={{ minWidth: 40 }}>{Math.round(viewScale * 100)}%</span>
+          <button type="button" className="ppt-tb-btn" onClick={() => setViewScale(s => Math.min(1.25, +(s + 0.08).toFixed(2)))} title="Zoom in">
+            <ZoomIn size={15} />
+          </button>
+        </div>
+
+        <span className="ppt-tb-hint" title={bookLabel}>
+          {bookLabel.length > 36 ? bookLabel.slice(0, 36) + '…' : bookLabel}
+        </span>
       </div>
 
-      {/* Slide Workspace */}
+      {/* Slide Workspace — fixed, no outer scroll */}
       <div 
         ref={workspaceRef}
-        className="ppt-workspace flex-1 min-h-0 relative w-full h-full glass-panel rounded-xl shadow-2xl overflow-y-auto overflow-x-hidden p-4"
+        className="ppt-workspace flex-1 min-h-0 relative w-full glass-panel rounded-xl shadow-sm flex items-center justify-center p-3"
       >
-        <div className="w-full flex justify-center pb-8" style={{ minHeight: 'max-content' }}>
         {(slideImage || elements.length > 0 || allSlides.length > 0) ? (
           <div className="relative flex-shrink-0" style={{ width: `${SLIDE_WIDTH * viewScale}px`, height: `${SLIDE_HEIGHT * viewScale}px` }}>
             <div
               id="canvas-container"
               ref={canvasRef}
-              className="absolute left-0 top-0 bg-white shadow-2xl origin-top-left flex-shrink-0"
+              className="absolute left-0 top-0 bg-white shadow-xl origin-top-left flex-shrink-0"
               style={{ 
                 width: `${SLIDE_WIDTH}px`, 
                 height: `${SLIDE_HEIGHT}px`,
                 transform: `scale(${viewScale})`,
                 cursor: currentTool === 'select' ? 'default' : currentTool === 'text' ? 'text' : 'crosshair',
-                overflow: 'visible'
+                overflow: 'hidden'
               }}
             onMouseDown={handlePointerDown} onMouseMove={handlePointerMove} onMouseUp={handlePointerUp} onMouseLeave={handlePointerUp}
             onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={handlePointerUp}
@@ -925,11 +898,10 @@ const App: React.FC = () => {
                            ? '0 1px 3px rgba(15,23,42,0.35)'
                            : (textEl.fill ? '0 2px 8px rgba(15,23,42,0.08)' : undefined),
                          textShadow: textEl.fill ? 'none' : '0 1px 2px rgba(255,255,255,0.8)',
-                         lineHeight: textEl.borderRadius === 999 ? 1 : undefined,
+                         lineHeight: textEl.borderRadius === 999 ? 1 : 1.25,
                          whiteSpace: 'pre-wrap',
                          wordBreak: 'normal',
                          overflowWrap: 'anywhere',
-                         lineHeight: 1.25,
                       }}
                     >
                       {textEl.text}
@@ -942,20 +914,15 @@ const App: React.FC = () => {
           </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-700/50 rounded-2xl bg-slate-800/20 max-w-lg w-full">
-            <MonitorPlay size={48} className="text-indigo-400/50 mb-6" />
-            <h2 className="text-2xl font-bold text-white mb-2">Create Standard 16:9 Slide</h2>
-            <p className="text-slate-400 mb-8 max-w-md text-sm">
-              Upload an architecture diagram. The tool will inject it into a standard 1280x720 PPT slide template.
+          <div className="ppt-empty">
+            <MonitorPlay size={40} style={{ opacity: 0.45, margin: '0 auto' }} />
+            <h2>Loading presentation…</h2>
+            <p>
+              Slides are loaded from the paper pipeline. Use the toolbar to annotate:
+              select, connectors, text, colors, undo/redo.
             </p>
-            <label className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-medium rounded-xl shadow-lg cursor-pointer transition-all hover:scale-105">
-              <Upload size={20} />
-              <span>Select Desktop Image</span>
-              <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-            </label>
           </div>
         )}
-        </div>
       </div>
     </div>
   );

@@ -436,7 +436,9 @@
         </div>
         <div class="pane" id="pane-ppt" style="display: none;">
             <div class="pane-header" data-i18n="chat.pane_ppt">PPT 独立流式编辑器</div>
-            <iframe src="/ppt_editor/{{ book_name }}" title="Web PPT Editor"></iframe>
+            {# Static SPA under FastAPI — no separate Node/Vite process needed #}
+            {# v= busts Electron persist:paperfect cache so toolbar redesign loads #}
+            <iframe id="iframe-ppt" src="/ppt_editor_app/index.html?v=20260728toolbar3&book={{ book_name | urlencode }}" title="Web PPT Editor"></iframe>
         </div>
         
         <!-- 实时翻译子面板 -->
@@ -456,7 +458,7 @@
                         <span data-i18n="chat.source_label">原文 (支持划选捕获与手动修改)</span>
                         <div style="display: flex; gap: 8px;">
                             <button id="realtime-btn-pip-return" style="display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.embed_back">↙ 嵌入网页</button>
-                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.translate_btn">手动翻译</button>
+                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.translate_btn">翻译</button>
                         </div>
                     </div>
                     <textarea id="realtime-source-text" autocomplete="off" spellcheck="false" data-form-type="other" data-i18n="chat.source_placeholder" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>

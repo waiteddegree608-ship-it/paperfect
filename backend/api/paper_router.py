@@ -9,7 +9,8 @@ router = APIRouter()
 
 @router.post("/api/upload")
 async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    book_name, pdf_path = await handle_upload_file(file, "book")
+    result = await handle_upload_file(file, "book")
+    book_name, pdf_path = result[0], result[1]
     task_id = f"books_{book_name}"
     if task_id not in active_tasks:
         active_tasks.add(task_id)
@@ -18,7 +19,8 @@ async def upload_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(
 
 @router.post("/api/upload_paper")
 async def upload_paper(background_tasks: BackgroundTasks, file: UploadFile = File(...), prompt_type: str = Form("提示词汇总"), ppt_mode: str = Form("creative"), ppt_lang: str = Form("zh")):
-    book_name, pdf_path = await handle_upload_file(file, "paper")
+    result = await handle_upload_file(file, "paper")
+    book_name, pdf_path = result[0], result[1]
     task_id = f"papers_{book_name}"
     if task_id not in active_tasks:
         active_tasks.add(task_id)
@@ -29,8 +31,12 @@ async def upload_paper(background_tasks: BackgroundTasks, file: UploadFile = Fil
 async def delete_target(name: str, type: str):
     return delete_target_item(name, type)
 
-@router.post("/api/resume/{book_name}")
-async def resume_task(book_name: str, background_tasks: BackgroundTasks):
+@router.post("/api/resume/{book_name:path}")
+async def resume_task(book_name: str, background_tasks: BackgroundTasks, prompt_type: str = "提示词汇总", ppt_mode: str = "creative", ppt_lang: str = "zh"):
+    """Resume interrupted pipeline. Skips stages that already produced artifacts (see task_runner)."""
+    from urllib.parse import unquote
+    book_name = unquote(book_name or "").strip().strip("/")
+
     target_dir = os.path.join(get_base_dir(), "data", "textbooks", book_name, "raw")
     pdf_path = os.path.join(target_dir, f"{book_name}.pdf")
     if os.path.exists(pdf_path):
@@ -38,17 +44,25 @@ async def resume_task(book_name: str, background_tasks: BackgroundTasks):
         if task_id not in active_tasks:
             active_tasks.add(task_id)
             background_tasks.add_task(async_run_builder, pdf_path, book_name, "book")
-        return {"status": "processing"}
-        
+        return {"status": "processing", "book_name": book_name, "type": "book"}
+
     target_dir = os.path.join(get_base_dir(), "data", "papers", book_name, "raw")
     pdf_path_paper = os.path.join(target_dir, f"{book_name}.pdf")
+    # Fallback: any pdf in raw/
+    if not os.path.exists(pdf_path_paper) and os.path.isdir(target_dir):
+        for f in os.listdir(target_dir):
+            if f.lower().endswith(".pdf") and "annotated" not in f.lower():
+                pdf_path_paper = os.path.join(target_dir, f)
+                break
     if os.path.exists(pdf_path_paper):
         task_id = f"papers_{book_name}"
         if task_id not in active_tasks:
             active_tasks.add(task_id)
-            background_tasks.add_task(async_run_builder, pdf_path_paper, book_name, "paper", "提示词汇总", "creative")
-        return {"status": "processing"}
-        
+            background_tasks.add_task(
+                async_run_builder, pdf_path_paper, book_name, "paper", prompt_type, ppt_mode, ppt_lang
+            )
+        return {"status": "processing", "book_name": book_name, "type": "paper"}
+
     return {"status": "error", "message": "PDF not found"}
 
 @router.get("/api/status/{item_type}/{book_name}")

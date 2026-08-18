@@ -1,9 +1,17 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, session, nativeImage } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const net = require('net');
+
+// Windows taskbar / jump-list: must match package.json build.appId
+// Call as early as possible so the shell associates the correct icon.
+try {
+    if (process.platform === 'win32') {
+        app.setAppUserModelId('com.paperfect.app');
+    }
+} catch (_) {}
 
 let backendProcess = null;
 let mainWindow = null;
@@ -33,6 +41,48 @@ function getPortablePath() {
     return !app.isPackaged
         ? __dirname
         : path.join(process.resourcesPath, 'dist_portable');
+}
+
+/**
+ * Packaged first-run: ensure data dirs + blank .env exist.
+ * Installer never ships user secrets; users configure via Settings UI.
+ */
+function ensurePackagedRuntimeLayout() {
+    if (!app.isPackaged) return;
+    const root = getPortablePath();
+    try {
+        const dataDirs = [
+            path.join(root, 'data'),
+            path.join(root, 'data', 'papers'),
+            path.join(root, 'data', 'textbooks'),
+            path.join(root, 'data', 'library_raw'),
+        ];
+        for (const d of dataDirs) {
+            if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        }
+        const envPath = path.join(root, '.env');
+        if (!fs.existsSync(envPath)) {
+            const blank =
+                '# Configure via in-app Settings\n' +
+                'PARSE_API_URL=\nPARSE_API_KEY=\nPARSE_MODEL=\n' +
+                'CHAT_API_URL=\nCHAT_API_KEY=\nCHAT_MODEL=\n' +
+                'PAPER_API_URL=\nPAPER_API_KEY=\nPAPER_MODEL=\n' +
+                'ANNOTATOR_API_URL=\nANNOTATOR_API_KEY=\nANNOTATOR_MODEL=\n' +
+                'TRANSLATE_API_URL=\nTRANSLATE_API_KEY=\nTRANSLATE_MODEL=\n';
+            fs.writeFileSync(envPath, blank, 'utf8');
+            log('Created blank .env for first run.');
+        }
+        const backendExe = path.join(root, 'paperfect.exe');
+        const nodeExe = path.join(root, 'runtime', 'node', 'node.exe');
+        if (!fs.existsSync(backendExe)) {
+            log(`WARNING: missing backend: ${backendExe}`);
+        }
+        if (!fs.existsSync(nodeExe)) {
+            log(`WARNING: missing bundled node: ${nodeExe}`);
+        }
+    } catch (e) {
+        log(`ensurePackagedRuntimeLayout: ${e && e.message ? e.message : e}`);
+    }
 }
 
 function getLogRoot() {
@@ -93,12 +143,15 @@ function startBackend() {
 
     if (!app.isPackaged) {
         const venvPy = path.join(__dirname, 'venv', 'Scripts', 'python.exe');
-        const sysPy = 'python';
+        const sysPy = process.platform === 'win32' ? 'python' : 'python3';
         executablePath = fs.existsSync(venvPy) ? venvPy : sysPy;
         args = [path.join(__dirname, 'backend', 'main.py'), '--headless'];
+        // Dev backend must run from project root so `import backend...` works
+        cwd = __dirname;
     } else {
         executablePath = path.join(process.resourcesPath, 'dist_portable', 'paperfect.exe');
         args = ['--headless'];
+        cwd = path.join(process.resourcesPath, 'dist_portable');
     }
 
     log(`Starting backend executable: ${executablePath}`);
@@ -113,10 +166,13 @@ function startBackend() {
         env: {
             ...process.env,
             PYTHONUNBUFFERED: '1',
+            PYTHONIOENCODING: 'utf-8',
+            PYTHONUTF8: '1',
             // Keep auto-heal off by default to avoid SQLite/UI freezes
             PAPERFECT_AUTO_HEAL: process.env.PAPERFECT_AUTO_HEAL || '0',
         },
         windowsHide: true,
+        shell: !app.isPackaged && process.platform === 'win32' && executablePath === 'python',
     });
 
     const appendBackend = (prefix, data) => {
@@ -149,7 +205,7 @@ function startBackend() {
  * Prefer /api/health; fall back to /.
  * Requires JSON ok:true when health is available.
  */
-function waitForServer(callback, timeout = 90000) {
+function waitForServer(callback, timeout = 180000) {
     const startTime = Date.now();
     const healthUrl = 'http://127.0.0.1:8900/api/health';
     const rootUrl = 'http://127.0.0.1:8900/';
@@ -212,14 +268,18 @@ function waitForServer(callback, timeout = 90000) {
 
 function getAppIconPath() {
     const candidates = [
-        path.join(__dirname, 'frontend', 'static', 'app_icon.ico'),
-        path.join(__dirname, 'frontend', 'static', 'favicon.png'),
-        path.join(__dirname, 'frontend', 'static', 'paperfect_logo.png'),
-        path.join(__dirname, 'build', 'icon.ico'),
-        path.join(getPortablePath(), 'frontend', 'static', 'app_icon.ico'),
-        path.join(getPortablePath(), 'frontend', 'static', 'favicon.png'),
+        // Packaged: icon next to resources / portable frontend
+        path.join(process.resourcesPath || '', 'icon.ico'),
         path.join(process.resourcesPath || '', 'dist_portable', 'frontend', 'static', 'app_icon.ico'),
-        path.join(process.resourcesPath || '', 'dist_portable', 'frontend', 'static', 'favicon.png'),
+        path.join(getPortablePath(), 'frontend', 'static', 'app_icon.ico'),
+        path.join(getPortablePath(), 'frontend', 'static', 'app_icon.png'),
+        // Dev / asar-unpacked project tree
+        path.join(__dirname, 'build', 'icon.ico'),
+        path.join(__dirname, 'build', 'icon.png'),
+        path.join(__dirname, 'frontend', 'static', 'app_icon.ico'),
+        path.join(__dirname, 'frontend', 'static', 'app_icon.png'),
+        path.join(__dirname, 'frontend', 'static', 'paperfect_logo.png'),
+        path.join(__dirname, 'frontend', 'static', 'favicon.png'),
     ];
     for (const c of candidates) {
         try {
@@ -229,8 +289,21 @@ function getAppIconPath() {
     return undefined;
 }
 
+/** nativeImage for BrowserWindow / taskbar (ICO or PNG). */
+function getAppIconImage() {
+    const p = getAppIconPath();
+    if (!p) return undefined;
+    try {
+        const img = nativeImage.createFromPath(p);
+        if (img && !img.isEmpty()) return img;
+    } catch (e) {
+        log(`getAppIconImage failed for ${p}: ${e && e.message ? e.message : e}`);
+    }
+    return undefined;
+}
+
 function showLoadingWindow() {
-    const icon = getAppIconPath();
+    const icon = getAppIconImage() || getAppIconPath();
     loadingWindow = new BrowserWindow({
         width: 500,
         height: 400,
@@ -279,7 +352,12 @@ function runEnvironmentSetup(callback) {
 }
 
 function createMainWindow() {
-    const icon = getAppIconPath();
+    const icon = getAppIconImage() || getAppIconPath();
+    if (icon) {
+        log(`Using app icon: ${typeof icon === 'string' ? icon : getAppIconPath()}`);
+    } else {
+        log('WARNING: no app icon found — Windows may show default Electron logo');
+    }
     mainWindow = new BrowserWindow({
         title: 'Paperfect AI Academic Assistant',
         width: 1366,
@@ -295,6 +373,11 @@ function createMainWindow() {
             partition: 'persist:paperfect',
         },
     });
+
+    // Reinforce taskbar icon (some Windows shells ignore constructor icon until shown)
+    try {
+        if (icon && mainWindow.setIcon) mainWindow.setIcon(icon);
+    } catch (_) {}
 
     mainWindow.setMenuBarVisibility(false);
 
@@ -331,7 +414,7 @@ function createMainWindow() {
         mainWindow.webContents.on('did-fail-load', (_e, code, desc) => {
             log(`Main window failed to load: ${code} ${desc}`);
         });
-    }, 90000);
+    }, 180000);
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -353,39 +436,62 @@ if (!gotTheLock) {
     });
 
     app.on('ready', () => {
+        // Drop HTTP disk cache for persist:paperfect so redeployed ppt_editor SPA is visible
+        try {
+            const ses = session.fromPartition('persist:paperfect');
+            ses.clearCache().then(() => log('Cleared persist:paperfect HTTP cache.')).catch((e) => {
+                log(`clearCache failed: ${e && e.message ? e.message : e}`);
+            });
+        } catch (e) {
+            log(`session clearCache error: ${e && e.message ? e.message : e}`);
+        }
+
         showLoadingWindow();
         log('Loading window shown. Freeing port 8900 then starting backend...');
 
         killPortOccupants(8900, () => {
             const cwd = getPortablePath();
-            const venvPath = path.join(cwd, 'venv');
+            // Dev: prefer project venv, otherwise system python (startBackend already falls back).
+            // Only run install.bat when packaged portable tree is missing deps — never block
+            // dev launch just because venv/ is absent.
+            const venvPath = path.join(__dirname, 'venv');
+            const hasVenv = fs.existsSync(path.join(venvPath, 'Scripts', 'python.exe'));
+            const portableInstall = path.join(cwd, 'install.bat');
 
             const afterBackendStart = () => {
                 // Keep loading window until waitForServer succeeds inside createMainWindow
                 createMainWindow();
             };
 
-            if (!fs.existsSync(venvPath) && !app.isPackaged) {
-                log('Python venv not found. Running environment setup...');
-                runEnvironmentSetup((success) => {
-                    if (success) {
-                        startBackend();
-                        afterBackendStart();
-                    } else {
-                        if (loadingWindow) {
-                            try { loadingWindow.destroy(); } catch (_) {}
-                        }
-                        dialog.showErrorBox(
-                            'Setup Failure',
-                            'Failed to configure the Python runtime environment. Please make sure Python and Node.js are installed.'
-                        );
-                        app.quit();
-                    }
-                });
-            } else {
+            if (!app.isPackaged) {
+                if (!hasVenv) {
+                    log('No project venv — using system python via startBackend().');
+                }
                 startBackend();
                 afterBackendStart();
+                return;
             }
+
+            // Packaged release: fully self-contained (paperfect.exe + runtime/node).
+            // No install.bat / system Python / system Node required.
+            ensurePackagedRuntimeLayout();
+            const backendExe = path.join(cwd, 'paperfect.exe');
+            if (!fs.existsSync(backendExe)) {
+                dialog.showErrorBox(
+                    'Installation incomplete',
+                    'Bundled backend paperfect.exe is missing.\n\n' +
+                        'Please reinstall Paperfect using the official Setup installer.\n' +
+                        `Expected: ${backendExe}`
+                );
+                app.quit();
+                return;
+            }
+            if (fs.existsSync(portableInstall) && !fs.existsSync(path.join(cwd, 'venv'))) {
+                // Legacy portable trees only — skip on modern installer builds
+                log('Legacy install.bat present; modern builds do not need it. Starting backend directly.');
+            }
+            startBackend();
+            afterBackendStart();
         });
     });
 }

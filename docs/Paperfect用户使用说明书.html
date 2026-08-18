@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paperfect 用户使用说明书 · V2.0</title>
+  <link rel="icon" type="image/png" href="manual_assets/app_icon.png" />
+  <style>
+    :root {
+      --ink: #1a1d27;
+      --muted: #5c6478;
+      --line: #d8deea;
+      --paper: #f7f5f0;
+      --card: #ffffff;
+      --navy: #16161d;
+      --teal: #2a9d8f;
+      --blue: #6e88bd;
+      --cyan: #39b2b2;
+      --gold: #c9a227;
+      --red: #c0392b;
+      --yellow: #e1b12c;
+      --green: #27ae60;
+      --shadow: 0 18px 50px rgba(22, 22, 29, 0.08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.7;
+    }
+    img { max-width: 100%; display: block; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .cover {
+      background: #f4f1ea;
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+    .cover-hero {
+      width: 100%;
+      height: auto;
+      max-height: 380px;
+      object-fit: cover;
+      object-position: center 45%;
+    }
+    .cover-body {
+      padding: 28px 56px 36px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 32px;
+      align-items: end;
+    }
+    .brand-row { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .brand-row img {
+      width: 52px; height: 52px; object-fit: contain;
+      background: transparent;
+    }
+    .cover h1 {
+      font-size: 40px; margin: 0 0 6px; letter-spacing: 0.03em; font-weight: 700;
+    }
+    .cover .subtitle { font-size: 18px; color: var(--muted); margin: 0 0 12px; }
+    .cover .tagline { color: var(--muted); margin: 0; max-width: 560px; font-size: 14px; }
+    .meta-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 20px;
+      min-width: 240px;
+    }
+    .meta-card dt { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; }
+    .meta-card dd { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+    .meta-card dd:last-child { margin-bottom: 0; }
+    .badge {
+      display: inline-block; background: var(--teal); color: #fff;
+      border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+    }
+
+    .wrap { max-width: 980px; margin: 0 auto; padding: 36px 28px 56px; }
+    nav.toc {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px 28px;
+      box-shadow: var(--shadow);
+      columns: 2;
+      column-gap: 36px;
+    }
+    nav.toc h2 { column-span: all; margin: 0 0 12px; font-size: 18px; }
+    nav.toc ol { margin: 0; padding-left: 20px; }
+    nav.toc li { break-inside: avoid; margin: 4px 0; font-size: 14px; }
+    nav.toc a { color: var(--ink); }
+
+    h2.sec {
+      font-size: 22px;
+      margin: 36px 0 8px;
+      padding-top: 10px;
+      border-top: 2px solid var(--navy);
+    }
+    h2.sec .num {
+      color: var(--teal); font-size: 11px; letter-spacing: 0.16em;
+      display: block; margin-bottom: 4px; font-weight: 700;
+    }
+    h3 { font-size: 16px; margin: 20px 0 8px; }
+    p { font-size: 14px; }
+    p.lead { font-size: 15px; color: var(--muted); margin-top: 0; }
+    .figure {
+      margin: 14px 0 4px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--line);
+      background: #f6f7f9;
+    }
+    .figure img { width: 100%; }
+    figcaption {
+      font-size: 12px; color: var(--muted); margin: 6px 0 18px; text-align: center;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .card h4 { margin: 0 0 8px; font-size: 16px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    table {
+      width: 100%; border-collapse: collapse; background: var(--card);
+      border-radius: 14px; overflow: hidden; box-shadow: var(--shadow);
+      margin: 16px 0 28px;
+    }
+    th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top; }
+    th { background: var(--navy); color: #fff; font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+
+    .callout {
+      border-left: 5px solid var(--teal);
+      background: #eef7f5;
+      padding: 14px 18px;
+      border-radius: 0 12px 12px 0;
+      margin: 18px 0;
+    }
+    .callout.warn { border-left-color: var(--gold); background: #fbf6e8; }
+    .callout.danger { border-left-color: var(--red); background: #fdecea; }
+    .callout b { display: block; margin-bottom: 4px; }
+
+    .steps { counter-reset: step; margin: 12px 0 28px; padding: 0; list-style: none; }
+    .steps li {
+      position: relative;
+      padding: 14px 16px 14px 62px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      margin-bottom: 10px;
+      border-radius: 12px;
+    }
+    .steps li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute; left: 16px; top: 16px;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--navy); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+
+    .ui-mock {
+      background: #16161d;
+      color: #c9cedc;
+      border-radius: 16px;
+      padding: 16px;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      margin: 18px 0 8px;
+    }
+    .ui-top {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 10px 14px; border-bottom: 1px solid #2a2d3a; margin-bottom: 14px;
+    }
+    .logo-dot {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: #c9cedc url("manual_assets/paperfect_logo.png") center/contain no-repeat;
+      filter: invert(1);
+    }
+    .pills { display: flex; gap: 6px; background: #1a1b25; padding: 4px; border-radius: 10px; }
+    .pill { padding: 6px 14px; border-radius: 8px; color: #878aa2; }
+    .pill.on { background: #6e88bd; color: #fff; font-weight: 700; }
+    .dropzone {
+      border: 2px dashed rgba(255,255,255,0.18);
+      border-radius: 14px; padding: 28px; text-align: center; color: #878aa2;
+    }
+    .folders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    .folder {
+      background: #1a1b25; border-radius: 12px; padding: 16px 10px; text-align: center;
+    }
+    .folder .ico { font-size: 28px; }
+    .callout-num {
+      display: inline-flex; width: 22px; height: 22px; border-radius: 50%;
+      background: #df5953; color: #fff; font-size: 12px; font-weight: 800;
+      align-items: center; justify-content: center; margin-right: 6px;
+    }
+
+    .anno {
+      display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start;
+    }
+    .swatch { width: 28px; height: 28px; border-radius: 8px; }
+    .legend-line { height: 6px; border-radius: 999px; margin-top: 8px; }
+
+    .kbd {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      background: #eef1f6; border: 1px solid #cfd6e4; border-bottom-width: 2px;
+      border-radius: 6px; padding: 1px 7px; font-size: 12px;
+    }
+    .pair {
+      display: grid; grid-template-columns: 1fr 48px 1fr; gap: 0;
+      align-items: stretch; margin: 22px 0 8px;
+    }
+    .pair-col { min-width: 0; }
+    .pair-col .figure { margin: 0; }
+    .pair-label {
+      display: inline-block; background: var(--navy); color: #fff;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+      border-radius: 999px; padding: 3px 10px; margin-bottom: 8px;
+    }
+    .pair-label.soft { background: var(--teal); }
+    .pair-arrow {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: var(--teal); font-weight: 700; font-size: 13px; text-align: center;
+      padding: 0 4px;
+    }
+    .pair-arrow span { font-size: 28px; line-height: 1; }
+    @media screen and (max-width: 860px) {
+      .pair { grid-template-columns: 1fr; }
+      .pair-arrow { flex-direction: row; padding: 10px 0; }
+      .pair-arrow span { transform: rotate(90deg); }
+    }
+
+    footer {
+      background: #ece8df;
+      color: var(--muted);
+      text-align: center;
+      padding: 24px 20px 32px;
+      font-size: 12px;
+    }
+    footer strong { color: var(--ink); }
+
+    @media screen and (max-width: 860px) {
+      .cover-body, .grid-2, .grid-3, .grid-4, .folders, nav.toc { grid-template-columns: 1fr; columns: 1; display: block; }
+      .cover h1 { font-size: 28px; }
+      .cover-body { padding: 20px 18px 24px; }
+      .wrap { padding: 24px 16px 40px; }
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm 14mm 14mm 14mm;
+    }
+    @media print {
+      html, body {
+        background: #fff !important;
+        color: #1a1d27;
+        font-size: 10pt;
+        line-height: 1.45;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .cover {
+        min-height: 0;
+        background: #f4f1ea !important;
+        color: #1a1d27 !important;
+        page-break-after: always;
+        break-after: page;
+        border-bottom: none;
+      }
+      .cover-hero {
+        height: 78mm;
+        max-height: 78mm;
+        object-fit: cover;
+      }
+      .cover-body { padding: 10mm 4mm 8mm; gap: 12px; }
+      .cover h1 { font-size: 22pt; color: #1a1d27 !important; }
+      .cover .subtitle, .cover .tagline, .meta-card, .meta-card dt, .meta-card dd {
+        color: #3a4154 !important;
+      }
+      .wrap { max-width: none; padding: 0; }
+      nav.toc { box-shadow: none; padding: 10px 14px; margin-bottom: 8px; }
+      h2.sec {
+        font-size: 13.5pt;
+        margin: 11pt 0 6pt;
+        padding-top: 6pt;
+        page-break-before: auto;
+        break-before: auto;
+        page-break-after: avoid;
+      }
+      h3 { font-size: 11.5pt; margin: 9pt 0 4pt; page-break-after: avoid; }
+      p, li, td { font-size: 10pt; }
+      p.lead { font-size: 10.5pt; }
+      .figure {
+        margin: 8pt 0 4pt;
+        box-shadow: none;
+        border-radius: 4px;
+        background: transparent;
+        border: 1px solid #d8deea;
+        page-break-inside: auto;
+        break-inside: auto;
+      }
+      .figure img {
+        width: 100%;
+        height: auto;
+        max-height: none;
+        object-fit: unset;
+        background: transparent;
+        display: block;
+      }
+      .pair {
+        display: grid !important;
+        grid-template-columns: 1fr 22px 1fr !important;
+        align-items: start;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .pair-col { min-width: 0; }
+      .pair-arrow {
+        flex-direction: column !important;
+        padding: 12mm 0 0 !important;
+        font-size: 9pt;
+      }
+      .pair-arrow span { transform: none !important; font-size: 16pt !important; }
+      .grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+      .grid-3 { display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; }
+      figcaption { font-size: 8.5pt; margin: 3pt 0 8pt; }
+      .card, .callout, .steps li, table {
+        box-shadow: none;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .steps li { padding: 8px 10px 8px 42px; margin-bottom: 5px; }
+      .steps li::before { width: 22px; height: 22px; font-size: 10px; top: 8px; left: 10px; }
+      th, td { padding: 6px 8px; font-size: 9pt; }
+      footer {
+        background: #f4f1ea !important;
+        color: #5c6478 !important;
+        padding: 10pt 0 0;
+      }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+
+<section class="cover">
+  <img class="cover-hero" src="manual_assets/cover-hero.png" alt="浅色书房中，戴金丝单片镜的黑猫与 Paperfect 界面" />
+  <div class="cover-body">
+    <div>
+      <div class="brand-row">
+        <img src="manual_assets/paperfect_logo.png" alt="Paperfect logo" />
+        <span class="badge">正式交付文档</span>
+      </div>
+      <h1>Paperfect</h1>
+      <p class="subtitle">智能学术阅读与文献管理系统<br/>用户使用说明书</p>
+    </div>
+    <dl class="meta-card">
+      <dt>产品名称</dt><dd>Paperfect</dd>
+      <dt>版本</dt><dd>V2.0.0</dd>
+      <dt>适用系统</dt><dd>Windows 10 / 11（64 位）</dd>
+      <dt>文档日期</dt><dd>2026 年 8 月</dd>
+      <dt>文档类型</dt><dd>最终用户使用说明书</dd>
+    </dl>
+  </div>
+</section>
+
+<div class="wrap">
+
+  <nav class="toc" id="toc">
+    <h2>目录</h2>
+    <ol>
+      <li><a href="#s1">产品简介与能做什么</a></li>
+      <li><a href="#s2">安装与首次启动</a></li>
+      <li><a href="#s3">配置大模型引擎</a></li>
+      <li><a href="#s4">认识主界面</a></li>
+      <li><a href="#s5">上传文献并启动智能处理</a></li>
+      <li><a href="#s6">管理文件夹与文献卡片</a></li>
+      <li><a href="#s7">进入协同阅读工作区</a></li>
+      <li><a href="#s8">从纸质批注到软件四色标注</a></li>
+      <li><a href="#s9">PPT 视窗与双向同步</a></li>
+      <li><a href="#s10">AI 伴读问答</a></li>
+      <li><a href="#s11">划词实时翻译</a></li>
+      <li><a href="#s12">自动分类与筛选</a></li>
+      <li><a href="#s13">提示词管理</a></li>
+      <li><a href="#s14">主题、语言与个性化</a></li>
+      <li><a href="#s15">常见问题与故障排除</a></li>
+      <li><a href="#s16">附录：快捷键与处理产物</a></li>
+    </ol>
+  </nav>
+
+  <h2 class="sec" id="s1"><span class="num">CHAPTER 01</span>产品简介与能做什么</h2>
+  <p class="lead">Paperfect 是一款安装在本机的桌面软件，面向研究生、科研人员与需要精读英文论文的师生。它把纸面上「画高亮、画波浪线、贴便签、对着 PPT 讲图」这一套阅读习惯，搬进同一个窗口：本地完成解析、翻译、批注、演示文稿生成与问答。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-home-zh.png" alt="Paperfect 资料管理首页（中文浅色主题）" />
+  </figure>
+  <figcaption>图 1　软件首页「资料管理」：顶部切换模块，中部拖入 PDF，下方是文件夹与最近文献封面。</figcaption>
+
+  <figure class="figure">
+    <img src="manual_assets/workflow-pipeline.png" alt="从上传 PDF 到生成批注与 PPT 的四步处理流水线" />
+  </figure>
+  <figcaption>图 2　论文进入系统后的四段流水线：上传 → 解析翻译 → 智能批注 → 生成演示文稿</figcaption>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4>1. 文献库管理</h4>
+      <p>以封面卡片管理 PDF。支持文件夹归类、拖拽归档、检索、按期刊分区与关键词筛选。</p>
+    </div>
+    <div class="card">
+      <h4>2. 版式保留翻译</h4>
+      <p>生成尽量保持原排版的双语/中文对照 PDF，公式与图表位置不被打散。</p>
+    </div>
+    <div class="card">
+      <h4>3. 四色 AI 批注</h4>
+      <p>自动在原文上标出局限、创新、方法指标，并在页边给出段落级总结。</p>
+    </div>
+    <div class="card">
+      <h4>4. PPT 与 PDF 对读</h4>
+      <p>把论文图表与结构转成可编辑幻灯片，翻页时 PDF 同步跳到对应出处。</p>
+    </div>
+    <div class="card">
+      <h4>5. 知识库问答</h4>
+      <p>基于解析后的文献内容提问，可指定页码，适合归纳贡献、复述方法、核对实验设置。</p>
+    </div>
+    <div class="card">
+      <h4>6. 划词即时翻译</h4>
+      <p>在 PDF 中划选难句，右侧即时给出译文，不打断当前阅读位置。</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>使用前请理解的一点</b>
+    解析、翻译、批注、PPT 与问答都需要访问您配置的大模型 API。软件本体可离线打开界面，但智能能力依赖网络与有效的 API Key。文献文件始终保存在本机工作目录中。
+  </div>
+
+  <h2 class="sec" id="s2"><span class="num">CHAPTER 02</span>安装与首次启动</h2>
+  <p class="lead">交付介质为 Windows 安装包。安装完成后无需再安装 Python 或 Node.js，运行时已内置。</p>
+
+  <h3>2.1 系统要求</h3>
+  <table>
+    <thead><tr><th>项目</th><th>要求</th></tr></thead>
+    <tbody>
+      <tr><td>操作系统</td><td><strong>Windows 10 或 Windows 11（64 位）</strong>。不支持 Windows 7/8，不保证 Windows Server 精简环境。</td></tr>
+      <tr><td>处理器 / 架构</td><td>仅 x64。未覆盖 ARM 版 Windows。</td></tr>
+      <tr><td>内存</td><td>建议 8 GB 及以上。长论文解析时更稳。</td></tr>
+      <tr><td>磁盘</td><td>程序安装约 400–600 MB；另需空间存放 PDF、翻译件、PPT 与缓存。</td></tr>
+      <tr><td>网络</td><td>需能访问所配置的大模型 API 地址。</td></tr>
+      <tr><td>其它</td><td>无需自备 Python / Node.js。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 安装步骤</h3>
+  <ol class="steps">
+    <li>双击安装包 <strong>Paperfect-Setup-2.0.0.exe</strong>。</li>
+    <li>按向导选择安装目录（允许自定义路径）。</li>
+    <li>完成安装后，从桌面快捷方式或「开始菜单 → Paperfect」启动。</li>
+    <li>首次启动可能需要 <strong>数十秒到 1–2 分钟</strong>（后台引擎解压与服务拉起）。请等待主窗口出现，不要反复双击。</li>
+    <li>看到「资料管理」主界面后，先进入系统配置，填写 API，再上传文献。</li>
+  </ol>
+
+  <div class="callout warn">
+    <b>关于卸载</b>
+    通过 Windows「设置 → 应用 → 已安装的应用」卸载即可。默认<strong>不会清空</strong>您的文献数据。数据通常位于安装目录下的工作空间（如 <code>resources/dist_portable/data</code>）。重装前如需备份，请复制整个 data 目录。
+  </div>
+
+  <h2 class="sec" id="s3"><span class="num">CHAPTER 03</span>配置大模型引擎</h2>
+  <p class="lead">没有有效 API 配置时，界面可以打开，但上传后无法完成解析。这是使用本软件的第一步，也是最关键的一步。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-settings.png" alt="大模型引擎配置对话框（API 地址与密钥已打码）" />
+  </figure>
+  <figcaption>图 3　右上角齿轮打开「大模型引擎配置」。填写 API URL、API Key 与模型名称后保存即可。说明书配图中已对密钥与地址输入框内文字打码。</figcaption>
+
+  <ol class="steps">
+    <li>在主界面右上角点击<strong>齿轮图标</strong>（提示：系统配置）。</li>
+    <li>填写 <strong>API URL (Base)</strong>。填写服务商提供的 OpenAI 兼容基址，例如 <code>https://api.siliconflow.cn/v1</code>。不要在末尾追加 <code>/chat/completions</code>。</li>
+    <li>填写 <strong>API Keys</strong>。可点击「+ 增加 API Key」添加多把密钥，系统会轮询使用以分担并发。</li>
+    <li>填写 <strong>大模型名称</strong>。需同时胜任视觉理解与文本生成，例如界面占位所示的视觉/通用模型名。请使用服务商控制台中的准确模型 ID。</li>
+    <li>点击「保存配置并全局生效」。成功后弹窗会提示「配置已保存！」。</li>
+  </ol>
+
+  <div class="callout">
+    <b>一次填写，全链路生效</b>
+    界面只暴露一组 URL / Key / 模型。保存后会同步用于：文献解析、对话问答、论文处理、批注生成、翻译。无需分别配置五套参数。
+  </div>
+
+  <div class="callout warn">
+    <b>密钥安全</b>
+    API Key 仅保存在本机配置文件中，不会打进安装包、也不会上传到 Paperfect 服务器。请不要把密钥截图发到公共群组。更换密钥后重新打开系统配置并保存即可。
+  </div>
+
+  <h2 class="sec" id="s4"><span class="num">CHAPTER 04</span>认识主界面</h2>
+  <p class="lead">启动后默认进入「资料管理」。顶部是全局工具栏，中部是上传区与文件夹，底部是最近文献封面。界面语言可在右上角「中 / EN」之间切换，配色可在浅色与夜间模式之间切换。</p>
+
+  <div class="pair">
+    <div class="pair-col">
+      <span class="pair-label soft">浅色 · 中文</span>
+      <figure class="figure">
+        <img src="manual_assets/shot-home-zh.png" alt="浅色中文资料管理首页" />
+      </figure>
+    </div>
+    <div class="pair-arrow"><span>↔</span></div>
+    <div class="pair-col">
+      <span class="pair-label">夜间 · 中文</span>
+      <figure class="figure">
+        <img src="manual_assets/shot-home-zh-dark.png" alt="夜间模式中文资料管理首页" />
+      </figure>
+    </div>
+  </div>
+  <figcaption>图 4　资料管理首页。左：Cyan Light 浅色；右：Neon 夜间。语言可在右上角「中 / EN」切换，分区不变。</figcaption>
+
+  <h3>4.1 顶栏按钮一览</h3>
+  <table>
+    <thead><tr><th>位置</th><th>中文名称</th><th>英文名称</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td>左</td><td>Logo</td><td>—</td><td>返回资料管理首页。</td></tr>
+      <tr><td>左</td><td>资料管理 / 提示词管理</td><td>Library / Prompts</td><td>在文库与提示词编辑器之间切换。</td></tr>
+      <tr><td>右</td><td>中 / EN</td><td>中 / EN</td><td>界面语言。选择会记住，下次启动沿用。</td></tr>
+      <tr><td>右</td><td>主题下拉框</td><td>Theme</td><td>Neon、Dark+、Cyan Light 三套配色。</td></tr>
+      <tr><td>右</td><td>昼夜按钮</td><td>Moon / Sun</td><td>在浅色与深色主题间快速切换。</td></tr>
+      <tr><td>右</td><td>我的资料</td><td>My Files</td><td>封面卡片式文库，日常入口。</td></tr>
+      <tr><td>右</td><td>自动分类</td><td>Auto Classify</td><td>带标签与分区筛选的文献列表。</td></tr>
+      <tr><td>右</td><td>齿轮</td><td>Settings</td><td>大模型引擎配置。</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="sec" id="s5"><span class="num">CHAPTER 05</span>上传文献并启动智能处理</h2>
+  <p class="lead">把 PDF 拖进虚线框，或点击虚线框选择文件。随后弹出「上传文献」对话框，确认后开始后台流水线。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-upload.png" alt="上传文献对话框：选择文件夹、提示词方案与生成语言" />
+  </figure>
+  <figcaption>图 5　上传对话框。可指定存入文件夹、解析所用提示词方案，以及生成语言（中文 / 英文）。</figcaption>
+
+  <ol class="steps">
+    <li>准备一份学术论文 PDF。扫描件、纯图片 PDF 也能处理，但耗时更长。</li>
+    <li>拖入或点选文件。对话框会显示「当前文件: 文件名.pdf」。</li>
+    <li><strong>存入文件夹</strong>：从下拉框选择已有文件夹，或在右侧输入新名称当场新建。</li>
+    <li><strong>提示词方案</strong>：决定解析时关注哪些问题。内置如「计算机+人工智能」「默认提示词」。可在「提示词管理」中自建。</li>
+    <li><strong>生成语言</strong>：中文或英文。选择英文时，系统会跳过「译成中文」步骤，翻译视图沿用原文。</li>
+    <li>点击「确认并开始上传」。对话框关闭，卡片上出现进度。</li>
+  </ol>
+
+  <h3>5.1 处理过程中您会看到什么</h3>
+  <p>文献封面底部会出现半透明进度条，并轮换显示阶段名称与百分比，例如：</p>
+  <table>
+    <thead><tr><th>阶段文案</th><th>系统在做什么</th><th>大致比重</th></tr></thead>
+    <tbody>
+      <tr><td>初始化</td><td>建立文献目录、缓存与任务。</td><td>起始</td></tr>
+      <tr><td>解析文献</td><td>分页理解、抽取结构、生成知识库 Markdown。</td><td>约 40%</td></tr>
+      <tr><td>翻译文献</td><td>生成尽量保持版式的翻译 PDF（目标语言为英文时跳过）。</td><td>约 10%</td></tr>
+      <tr><td>生成PPT</td><td>根据解析结果与配图生成演示文稿。</td><td>约 25%</td></tr>
+      <tr><td>生成批注</td><td>在原文上写入四色标注与便签。</td><td>约 25%</td></tr>
+      <tr><td>收尾</td><td>整理产物，卡片变为可打开状态。</td><td>结束</td></tr>
+    </tbody>
+  </table>
+  <p>解析与翻译会<strong>并行</strong>；PPT 与批注在解析完成后并行。因此进度条上的阶段名称可能交替出现，这是正常现象。</p>
+
+  <div class="callout warn">
+    <b>中途断开怎么办</b>
+    同一文件已完成的步骤会被跳过。若卡片停在处理中或出现失败提示，点击绿色按钮 <strong>重试继续</strong>，不要删除后重传（除非您想彻底重做）。长论文可能需要数十分钟，请保持网络畅通、不要强制结束进程。
+  </div>
+
+  <div class="callout">
+    <b>何时可以打开</b>
+    处理尚未全部结束时，只要已生成可用的知识库、翻译件或批注之一，卡片也可能允许提前进入阅读。未完成的视图（如 PPT）打开后可能仍是空的，等进度到 100% 再刷新即可。
+  </div>
+
+  <h2 class="sec" id="s6"><span class="num">CHAPTER 06</span>管理文件夹与文献卡片</h2>
+
+  <h3>6.1 文件夹</h3>
+  <ul>
+    <li>点击「新建文件夹」卡片，输入名称后创建。</li>
+    <li>把文献卡片<strong>拖到</strong>目标文件夹上，即可归档。</li>
+    <li>点击文件夹进入内部网格。面包屑「全部文件夹 / 当前名称」可返回。</li>
+    <li>文件夹右上角「⋯」：重命名，或删除文件夹（<strong>文件不会被删除</strong>，只是移出该文件夹）。</li>
+  </ul>
+
+  <h3>6.2 文献卡片</h3>
+  <ul>
+    <li>封面一般为 PDF 首页缩略图，底部显示标题。</li>
+    <li>处理完成后，单击封面进入阅读工作区。</li>
+    <li>鼠标悬停后右上角出现删除按钮。删除是<strong>永久且不可恢复</strong>的，请谨慎确认。</li>
+  </ul>
+
+  <h2 class="sec" id="s7"><span class="num">CHAPTER 07</span>进入协同阅读工作区</h2>
+  <p class="lead">单击已完成的文献，进入多视窗工作区。最典型的用法是：左边继续读带批注的论文，右边对着同一页的幻灯片看图——也就是把「左手论文、右手 PPT」的组会习惯，放进同一个窗口。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-split.png" alt="左侧 AI 标注 PDF，右侧 PPT 编辑器的分屏阅读界面" />
+  </figure>
+  <figcaption>图 6　推荐布局：打开「AI标注」+「PPT」，并勾选「滚动同步」。左侧是论文（含四色批注），右侧是对应幻灯片。顶栏还可叠加原文、翻译、实时翻译与 AI 问答。</figcaption>
+
+  <h3>7.1 顶栏布局开关</h3>
+  <table>
+    <thead><tr><th>按钮</th><th>打开的内容</th><th>建议用法</th></tr></thead>
+    <tbody>
+      <tr><td>返回主页</td><td>回到资料管理</td><td>随时退出当前文献。</td></tr>
+      <tr><td>滚动同步</td><td>PDF ↔ PPT 页面对齐</td><td>对照阅读时保持开启；精细比页时可暂时关闭。</td></tr>
+      <tr><td>原文</td><td>原始 PDF</td><td>核对措辞、公式、参考文献。</td></tr>
+      <tr><td>AI标注</td><td>带四色批注的 PDF</td><td>快速抓住贡献与方法，详见第 8 章。</td></tr>
+      <tr><td>翻译</td><td>版式保留的翻译 PDF</td><td>与原文并排，对照长难句。</td></tr>
+      <tr><td>PPT</td><td>内置幻灯片编辑器</td><td>看图解、改标注、准备组会汇报。</td></tr>
+      <tr><td>实时翻译</td><td>划词翻译面板</td><td>只译当前选中的一小段。</td></tr>
+      <tr><td>AI</td><td>基于本文的对话</td><td>提问、归纳、指定页码讨论。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <b>自由拼装分屏</b>
+    按钮可多选。例如同时打开「原文 + 翻译 + AI」，或「原文 + PPT」。中间的竖条可左右拖动，改变各栏宽度。视窗标题栏提供最大化、脱离容器置顶，适合接到第二块显示器。
+  </div>
+
+  <h2 class="sec" id="s8"><span class="num">CHAPTER 08</span>从纸质批注到软件四色标注</h2>
+  <p class="lead">精读论文时，很多人会在纸上做四件事：用荧光笔标贡献、用红笔划问题、用蓝笔标方法名词、在页边贴一张写着「这段在说什么」的便签。Paperfect 没有发明另一套符号，而是把这套纸质流程原样迁进 PDF：颜色语义不变，由 AI 完成第一遍标注，您只负责核对与取舍。</p>
+
+  <div class="pair">
+    <div class="pair-col">
+      <span class="pair-label">纸上的习惯</span>
+      <figure class="figure">
+        <img src="manual_assets/annotation-legend.png" alt="纸质论文上的黄高亮、红波浪线、蓝下划线与绿便签" />
+      </figure>
+    </div>
+    <div class="pair-arrow"><span>→</span></div>
+    <div class="pair-col">
+      <span class="pair-label soft">软件里的实现</span>
+      <figure class="figure">
+        <img src="manual_assets/shot-annotated.png" alt="软件中 AI 批注：黄高亮与绿色深度总结便签" />
+      </figure>
+    </div>
+  </div>
+  <figcaption>图 7　同一套阅读动作：左边是纸面高亮、波浪线、下划线与便利贴；右边是软件把同样的四种语义写回 PDF，并在页边给出说明卡片。</figcaption>
+
+  <h3>8.1 四种颜色分别代表什么</h3>
+  <div class="grid-2" style="margin-top:8px;">
+    <div class="card">
+      <div class="anno">
+        <div class="swatch" style="background:#c0392b;"></div>
+        <div>
+          <h4>红色波浪线 · 局限与挑战</h4>
+          <p>前人工作的不足、尚未解决的问题、本文要面对的困难。读引言与 Related Work 时优先扫这些位置。</p>
+          <div class="legend-line" style="background:#c0392b;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="anno">
+        <div class="swatch" style="background:#e1b12c;"></div>
+        <div>
+          <h4>黄色高亮 · 核心创新</h4>
+          <p>本文贡献、关键动机、声称解决了什么。适合写笔记、做组会开场。</p>
+          <div class="legend-line" style="background:#e1b12c;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="anno">
+        <div class="swatch" style="background:#2980b9;"></div>
+        <div>
+          <h4>蓝色下划线 · 方法与指标</h4>
+          <p>网络模块名、数据集、评测指标、关键超参等客观事实。写复现笔记时对着蓝线抄。</p>
+          <div class="legend-line" style="background:#2980b9;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="anno">
+        <div class="swatch" style="background:#27ae60;"></div>
+        <div>
+          <h4>绿色便签 · 段落大意</h4>
+          <p>挂在段首或架构说明旁的短总结。扫一眼就能决定这一段要不要精读。</p>
+          <div class="legend-line" style="background:#27ae60;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>8.2 在阅读工作区里怎么用</h3>
+  <p>打开文献后点击顶栏「AI标注」。批注已经写在 PDF 里，可以缩放、换页，也可以和 PPT 并排（见第 7 章截图）。绿点/绿便签通常表示该段有一句总括；黄块是贡献；红波浪是问题；蓝线是方法事实。</p>
+  <div class="callout">
+    <b>建议读法（对照纸质习惯）</b>
+    先像扫纸质抽印本一样：只看黄和绿，用 3 分钟抓住「这篇做了什么」。再回头看红，理解它针对谁的不足。最后对着蓝线记模块名与指标。需要讲图时打开右侧 PPT，不必再另开 PowerPoint。
+  </div>
+  <div class="callout warn">
+    <b>标注是辅助，不是结论</b>
+    颜色由模型根据解析报告定位原文短语生成，偶有漏标或错标。涉及引用、数值与“本文是否真的创新”，请回到原文核对。若提示「尚未生成 AI 批注」，请等待任务完成或点击「重试继续」。
+  </div>
+
+  <h2 class="sec" id="s9"><span class="num">CHAPTER 09</span>PPT 视窗与双向同步</h2>
+  <p class="lead">打开「PPT」后，右侧（或您放置的那一栏）载入该文献的演示文稿。幻灯片来自论文流水线，可在画布上继续标注。</p>
+
+  <h3>9.1 与 PDF 对读</h3>
+  <ol class="steps">
+    <li>同时打开「原文」（或翻译）与「PPT」，并保持「滚动同步: 开」。</li>
+    <li>在 PPT 中翻到下一张：PDF 会滚到该页对应的论文页。</li>
+    <li>在 PDF 中滚动换页：PPT 会跟到映射的那一张幻灯片。</li>
+    <li>需要单独精读某一页时，取消勾选滚动同步，避免两边抢焦点。</li>
+  </ol>
+
+  <h3>9.2 编辑工具栏</h3>
+  <table>
+    <thead><tr><th>分组</th><th>功能</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>翻页</td><td>首张 / 上一张 / 页码 / 下一张 / 末张</td><td>也可用键盘左右方向键。</td></tr>
+      <tr><td>工具</td><td>选择移动（V）、箭头连线（A）、文本（T）</td><td>在图上画指示线、加注释文字。</td></tr>
+      <tr><td>历史</td><td>撤销、重做、复制、删除</td><td>见下方快捷键。</td></tr>
+      <tr><td>颜色</td><td>色点</td><td>作用于当前选中的文字或线条。</td></tr>
+      <tr><td>字号 / 线宽</td><td>加减按钮</td><td>调节选中对象。</td></tr>
+      <tr><td>缩放</td><td>缩小 / 百分比 / 放大</td><td>只改变显示比例，不改变幻灯片内容尺寸。</td></tr>
+    </tbody>
+  </table>
+  <p>常用快捷键：<span class="kbd">←</span> <span class="kbd">→</span> 翻页 · <span class="kbd">V</span> 选择 · <span class="kbd">A</span> 箭头 · <span class="kbd">T</span> 文本 · <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> 撤销 · <span class="kbd">Ctrl</span>+<span class="kbd">Y</span> 重做 · <span class="kbd">Ctrl</span>+<span class="kbd">D</span> 复制选中。</p>
+
+  <h2 class="sec" id="s10"><span class="num">CHAPTER 10</span>AI 伴读问答</h2>
+  <p>打开「AI」后，在输入框提问并按 Enter 发送；问答基于<strong>当前这篇文献</strong>的解析结果。可指定页码或图表编号，「开启新对话」换话题，「历史对话」查看或删除旧记录。关键数字请对照原文。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-read-orig-ai.png" alt="左侧原文 PDF，右侧 AI 问答面板" />
+  </figure>
+  <figcaption>图 8　「原文」+「AI」：可问贡献、方法、指定页码。</figcaption>
+
+  <h2 class="sec" id="s11"><span class="num">CHAPTER 11</span>划词实时翻译</h2>
+  <p>打开「实时翻译」，在 PDF 中划选文字（也可手改），点「翻译」即可。需要放到第二块屏幕时用「脱离容器并置顶」，结束后「嵌入网页」收回。整篇通读请用「翻译」视窗。</p>
+
+  <h2 class="sec" id="s12"><span class="num">CHAPTER 12</span>自动分类与筛选</h2>
+  <p class="lead">在资料管理页点击「自动分类」，进入带标签的文献列表。系统会根据导入时识别的标题、摘要、关键词、会议/期刊与分区信息组织文献，分类与筛选都在这一页完成。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-classify.png" alt="自动分类列表：左侧文献卡片，右侧分区与类型筛选" />
+  </figure>
+  <figcaption>图 9　自动分类。中间是文献条目（标题、分区标签、摘要、关键词），右侧用类型、核心期刊、JCR / 中科院 / CCF 分区缩小范围。</figcaption>
+
+  <h3>12.1 列表里能看到什么</h3>
+  <ul>
+    <li>中英文标题（若已生成中文题名）。</li>
+    <li>会议或期刊名、文献类型（综述 / 研究）、CCF / JCR 分区、研究领域。</li>
+    <li>摘要摘录与关键词标签。</li>
+    <li>单击条目即可进入该文献的阅读工作区。</li>
+  </ul>
+
+  <h3>12.2 右侧筛选器</h3>
+  <ul>
+    <li><strong>文献检索</strong>：标题或摘要关键词。</li>
+    <li><strong>文献类型</strong>：综述 / 研究。</li>
+    <li><strong>核心期刊</strong>：南大核心、北大核心、中文核心。</li>
+    <li><strong>分区</strong>：JCR、中科院、CCF，各有一区至四区（或 A/B/C）按钮，再点一次可取消。</li>
+  </ul>
+  <p>部分新导入文献在元数据尚未写完时，标题旁可能出现「待补全分类信息」；不影响先打开阅读，只是筛选标签会晚一点齐全。</p>
+
+  <h2 class="sec" id="s13"><span class="num">CHAPTER 13</span>提示词管理</h2>
+  <p class="lead">顶栏切换到「提示词管理」。左侧是方案列表，右侧按「段落」编辑每一段指令。上传文献时选择的方案，会决定解析报告更关注什么。</p>
+
+  <figure class="figure">
+    <img src="manual_assets/shot-prompts.png" alt="提示词管理：左侧方案列表，右侧分段编辑解析指令" />
+  </figure>
+  <figcaption>图 10　提示词管理。可按研究领域定制「要问这篇论文的哪几件事」，相当于把纸质精读清单写成可复用的解析步骤。</figcaption>
+
+  <ol class="steps">
+    <li>点「新建提示词」，输入方案名称，例如「生物医学综述」。</li>
+    <li>每个方案由若干段落组成：可改段落标题与正文，点「+ 添加新段落」。</li>
+    <li>编辑后务必点「保存」。删方案前会二次确认。</li>
+    <li>回到资料管理上传 PDF 时，在「选择提示词方案」下拉框中选中它。</li>
+  </ol>
+  <div class="callout">
+    <b>什么时候该改提示词</b>
+    默认方案面向通用论文梳理（背景、贡献、方法、局限）。若您固定精读某一领域，把领域术语、必须抽取的表格字段写进提示词，解析质量通常更稳。改方案只影响<strong>之后新上传</strong>的文献，不会自动重跑旧文。
+  </div>
+
+  <h2 class="sec" id="s14"><span class="num">CHAPTER 14</span>主题、语言与个性化</h2>
+  <div class="grid-3">
+    <div class="card">
+      <h4>Neon</h4>
+      <p>默认深色。背景近黑，点缀雾蓝与青绿，适合长时间夜间阅读。</p>
+    </div>
+    <div class="card">
+      <h4>Dark+</h4>
+      <p>接近常见代码编辑器的深色配色，对比更硬一些。</p>
+    </div>
+    <div class="card">
+      <h4>Cyan Light</h4>
+      <p>浅色界面，顶栏为浅青。投影、打印截图时更清晰。PPT 画布始终保持白底。</p>
+    </div>
+  </div>
+  <p>语言切换立即作用于按钮与提示文案。主题与语言都保存在本机浏览器存储中，换电脑不会带走，但同一台电脑下次打开会记住。</p>
+
+  <h2 class="sec" id="s15"><span class="num">CHAPTER 15</span>常见问题与故障排除</h2>
+  <table>
+    <thead><tr><th>现象</th><th>可能原因</th><th>处理办法</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>双击后很久才出窗口</td>
+        <td>首次解压后端引擎</td>
+        <td>等待 1–2 分钟。不要连续多次启动。以后会快很多。</td>
+      </tr>
+      <tr>
+        <td>主界面空白，底栏提示脚本未加载</td>
+        <td>缓存或启动竞争</td>
+        <td>完全退出（托盘/后台进程一并结束）后重开。仍不行可重启电脑后再开一次。</td>
+      </tr>
+      <tr>
+        <td>上传后进度一直停住</td>
+        <td>API 地址/密钥/模型名错误，或网络不通</td>
+        <td>打开系统配置核对三项。用同一套参数在服务商控制台先测通。然后点「重试继续」。</td>
+      </tr>
+      <tr>
+        <td>翻译版与原文几乎一样</td>
+        <td>生成语言选了英文，或翻译步骤失败被跳过</td>
+        <td>中文阅读请在上传时选「中文」。若选了中文仍无译文，检查翻译所用模型额度后重试。</td>
+      </tr>
+      <tr>
+        <td>AI 标注是空的</td>
+        <td>批注尚未完成或生成失败</td>
+        <td>等进度结束。点「重试继续」。确认模型具备足够上下文能力。</td>
+      </tr>
+      <tr>
+        <td>PPT 是空白画布</td>
+        <td>生成未完成，或上次生成文件过小被判定失败</td>
+        <td>等待或重试。确认 API 对 PPT 所用模型可用。</td>
+      </tr>
+      <tr>
+        <td>滚动同步乱跳</td>
+        <td>映射在个别图表页不够准</td>
+        <td>暂时关闭同步，手动对齐；这不影响阅读其它页。</td>
+      </tr>
+      <tr>
+        <td>卸载后文献还在 / 或找不到了</td>
+        <td>卸载默认保留 data</td>
+        <td>到原安装目录查找 <code>data</code>。重装到新路径时，请手动把旧 data 拷过去。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b>请避免的操作</b>
+    处理过程中不要删除正在写入的文献文件夹；不要在任务进行时强制结束 Paperfect；不要把安装目录放在同步盘（网盘）里频繁冲突。这些都可能导致进度损坏，只能靠「重试继续」或重新上传恢复。
+  </div>
+
+  <h2 class="sec" id="s16"><span class="num">CHAPTER 16</span>附录：快捷键与处理产物</h2>
+
+  <h3>16.1 推荐阅读路径（第一次用）</h3>
+  <ol class="steps">
+    <li>安装并启动 → 齿轮里填 API → 保存。</li>
+    <li>拖入一篇 8–20 页的会议论文，提示词选「计算机+人工智能」，语言选中文。</li>
+    <li>等待封面进度到 100%（可去干别的，不要关软件）。</li>
+    <li>打开文献：原文 + AI标注 并排，先扫黄高亮和绿便签。</li>
+    <li>打开 PPT，打开滚动同步，按幻灯片把图看懂。</li>
+    <li>用 AI 问：「这篇论文如果我复现，最少要准备哪些数据和指标？」</li>
+  </ol>
+
+  <h3>16.2 一篇论文在磁盘上会留下什么</h3>
+  <p>每篇文献在本地工作空间中有独立目录（概念结构如下）。一般无需手工打开这些文件夹，软件会自动调用。</p>
+  <table>
+    <thead><tr><th>子目录 / 文件</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td>raw/</td><td>您上传的原始 PDF</td></tr>
+      <tr><td>parsed/</td><td>结构化解析与知识库 Markdown，供问答使用</td></tr>
+      <tr><td>translated/</td><td>翻译后的 PDF</td></tr>
+      <tr><td>marked/</td><td>带四色批注的 PDF 及批注数据</td></tr>
+      <tr><td>images/</td><td>抽取出的配图</td></tr>
+      <tr><td>pptx/</td><td>生成的演示文稿与页面对应关系</td></tr>
+      <tr><td>cache/</td><td>中断后续传用的缓存，勿随意清空</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card" style="margin-top:36px;text-align:center;padding:28px;">
+    <img src="manual_assets/paperfect_logo.png" alt="" style="width:56px;height:56px;margin:0 auto 12px;opacity:0.85;" />
+    <p>Paperfect 用户使用说明书 V2.0</p>
+  </div>
+</div>
+
+<footer>
+  <p><strong>Paperfect V2.0.0</strong></p>
+  <p>本说明书随软件交付，说明界面与 V2.0.0 安装包一致。后续版本若调整按钮名称，以软件内实际文案为准。</p>
+  <p>文献数据与 API 密钥均保存在用户本机。请妥善保管密钥，并定期备份 data 目录。</p>
+</footer>
+
+</body>
+</html>

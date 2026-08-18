@@ -2,11 +2,16 @@
   "name": "paperfect",
   "version": "2.0.0",
   "description": "Paperfect AI Academic Assistant",
+  "author": "Paperfect",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:portable": "electron-builder --win portable dir --x64",
+    "dist:installer": "electron-builder --win nsis portable dir --x64",
+    "build:portable": "python build_portable_exe.py",
+    "build:installer": "python build_installer.py"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -15,8 +20,10 @@
   "build": {
     "appId": "com.paperfect.app",
     "productName": "Paperfect",
+    "copyright": "Copyright © Paperfect",
     "directories": {
-      "output": "dist_electron"
+      "output": "dist_electron",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
@@ -25,25 +32,75 @@
     ],
     "extraResources": [
       {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
         "from": "dist_portable",
         "to": "dist_portable",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!_wheels/**",
+          "!_vendor/**",
+          "!install.bat",
+          "!启动程序.bat",
+          "!README.md",
+          "!requirements*.txt",
+          "!**/*.log",
+          "!data/papers/**",
+          "!data/textbooks/**",
+          "!data/library_raw/**",
+          "!data/*.db",
+          "!data/*.db-*"
         ]
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
-        "nsis",
-        "portable"
-      ]
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Paperfect-${version}-${os}-${arch}.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": true
+    },
+    "portable": {
+      "artifactName": "Paperfect-${version}-portable.exe"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Paperfect"
-    }
+      "shortcutName": "Paperfect",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "artifactName": "Paperfect-Setup-${version}.exe",
+      "unicode": true,
+      "warningsAsErrors": false
+    },
+    "asar": true
   }
 }

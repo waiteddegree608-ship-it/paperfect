@@ -104,6 +104,10 @@ const DashboardView = {
                                 <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
                             </div>
+                            <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; text-align: center; padding: 8px; z-index: 10;" @click.stop>
+                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
+                            </div>
                         </div>
                         <div class="file-title">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
                     </div>
@@ -165,6 +169,10 @@ const DashboardView = {
                                 <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
                                 <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
+                            </div>
+                            <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; text-align: center; padding: 6px; z-index: 10;" @click.stop>
+                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
                             </div>
                         </div>
                         <div class="card-title-bar">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
@@ -404,6 +412,25 @@ const DashboardView = {
             const name = filename.replace('.pdf', '');
             window.location.href = '/chat/' + encodeURIComponent(name);
         };
+
+        const resumeDoc = async (doc) => {
+            try {
+                const book = (doc.original_filename || doc.title || '').replace(/\.pdf$/i, '');
+                if (!book) return;
+                const res = await fetch('/api/resume/' + encodeURIComponent(book), { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (data.status === 'error') {
+                    alert(data.message || (getLang() === 'en' ? 'Resume failed' : '无法继续解析'));
+                    return;
+                }
+                doc.status = 'processing';
+                doc.progress = getLang() === 'en' ? 'Resuming…' : '继续解析中…';
+                doc.percent = doc.percent || 5;
+                startStatusPolling();
+            } catch (e) {
+                alert(getLang() === 'en' ? 'Resume failed' : '无法继续解析');
+            }
+        };
         
         const deleteDoc = async (e, id) => {
             e.stopPropagation();
@@ -504,7 +531,7 @@ const DashboardView = {
         return { 
             folders, recentDocs, isDragOver, currentFolder, folderDocs,
             dropFolderId, dragMoved,
-            triggerUpload, handleUpload, openChat, deleteDoc, canOpenDoc,
+            triggerUpload, handleUpload, openChat, resumeDoc, deleteDoc, canOpenDoc,
             onDragOver, onDragLeave, onDrop,
             onDocDragStart, onDocDragEnd, onFolderDragOver, onFolderDragLeave, onFolderDrop,
             enterFolder, exitFolder, openCreateFolder,
