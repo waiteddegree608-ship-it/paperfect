@@ -12,6 +12,13 @@ _SLOW = re.compile(
 _VL = re.compile(r"\bvl\b|vision|gpt-4o$|gemini-.+-pro", re.I)
 _HEAVY_VL = re.compile(r"235b|72b|32b|30b", re.I)
 
+# MiMo (Xiaomi) is a hybrid-reasoning model: unlike qwen3.7-plus it emits a
+# <think>...</think> trace before answering unless told otherwise, and that
+# trace eats into the same max_tokens budget. Detect it alongside the other
+# CoT-heavy models so callers can (a) ask it to skip thinking and (b) give it
+# enough headroom when the provider doesn't honor that request.
+_REASONING = re.compile(r"thinking|reasoner|qwq|\br1\b|mimo", re.I)
+
 OPENCODE_DEFAULT = "qwen3.7-plus"
 OPENCODE_URL = "https://opencode.ai/zen/go/v1"
 FAST_TEXT_DEFAULT = "Qwen/Qwen3-8B"
@@ -64,12 +71,46 @@ def default_fast_text_for_url(cfg: dict) -> str:
     return FAST_TEXT_DEFAULT
 
 
+def is_reasoning_model(name: str) -> bool:
+    """True for hybrid-reasoning models (MiMo, R1, QwQ, ...) that spend part of
+    their output budget on a <think> trace unless explicitly disabled."""
+    return bool(_REASONING.search(name or ""))
+
+
 def extra_body_for_model(name: str) -> dict:
     """Only disable CoT on explicit thinking/reasoner models — not qwen3.7-plus."""
-    n = (name or "").lower()
-    if re.search(r"thinking|reasoner|qwq|\br1\b", n):
+    if is_reasoning_model(name):
         return {"enable_thinking": False}
     return {}
+
+
+def reasoning_max_tokens(base: int, name: str, cap: int = 8000) -> int:
+    """Give reasoning models (MiMo, R1, QwQ, ...) extra output headroom.
+
+    Some gateways don't honor `enable_thinking: false`, so the model may still
+    spend a large chunk of `max_tokens` on its <think> trace before it ever
+    reaches the JSON/answer we actually want — leaving nothing for it and
+    causing empty/garbled parses (e.g. PPT figure labeling or tagging silently
+    falling back). Non-reasoning models are returned unchanged.
+    """
+    if not is_reasoning_model(name):
+        return base
+    boosted = max(base * 2, base + 3000)
+    return min(cap, boosted)
+
+
+_THINK_CLOSED = re.compile(r"<think>[\s\S]*?</think>", re.I)
+_THINK_OPEN = re.compile(r"<think>[\s\S]*", re.I)
+
+
+def strip_think(text: str) -> str:
+    """Remove a model's <think>...</think> trace, including an unclosed one
+    left dangling when max_tokens cut generation off mid-thought."""
+    if not text:
+        return text or ""
+    cleaned = _THINK_CLOSED.sub("", text)
+    cleaned = _THINK_OPEN.sub("", cleaned)
+    return cleaned.strip()
 
 
 def pick_fast_text_model(cfg: dict, fallback: str | None = None) -> str:

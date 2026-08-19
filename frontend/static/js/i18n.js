@@ -41,6 +41,12 @@ const TRANSLATIONS = {
     "reader.hibernated_hint": "该标签已休眠以节省内存",
     "reader.wake": "点击唤醒",
     "reader.uncategorized": "未分类",
+    "reader.ctx_close": "关闭标签",
+    "reader.ctx_close_others": "关闭其他标签",
+    "reader.ctx_close_right": "关闭右侧标签",
+    "reader.ctx_ungroup": "取消分组",
+    "reader.ctx_close_all": "关闭全部标签",
+    "reader.drag_merge_hint": "拖到另一个标签上可合并为一组",
 
     // ── Dashboard ──
     "dash.upload_title": "拖入 PDF 或点击此处选择文件",
@@ -188,6 +194,7 @@ const TRANSLATIONS = {
     "auto.lineage_empty": "暂无库内关联",
     "auto.lineage_dossier": "论文速览",
     "auto.lineage_hero_fig": "最具辨识度的配图",
+    "auto.lineage_hero_fig_fallback": "论文首页预览（未提取到配图，用首页帮助你回忆）",
     "auto.lineage_arch_fig": "模型架构 / 材料结构图",
     "auto.lineage_arch_same": "架构图与主配图为同一张（该文最醒目的图即框架图）。",
     "auto.lineage_ai_abs": "AI 摘要",
@@ -260,6 +267,12 @@ const TRANSLATIONS = {
     "reader.hibernated_hint": "This tab was hibernated to save memory",
     "reader.wake": "Click to wake",
     "reader.uncategorized": "Uncategorized",
+    "reader.ctx_close": "Close tab",
+    "reader.ctx_close_others": "Close other tabs",
+    "reader.ctx_close_right": "Close tabs to the right",
+    "reader.ctx_ungroup": "Remove from group",
+    "reader.ctx_close_all": "Close all tabs",
+    "reader.drag_merge_hint": "Drop on another tab to merge into a group",
 
     // ── Dashboard ──
     "dash.upload_title": "Drop PDF here or click to select",
@@ -407,6 +420,7 @@ const TRANSLATIONS = {
     "auto.lineage_empty": "No library relations yet",
     "auto.lineage_dossier": "Paper dossier",
     "auto.lineage_hero_fig": "Most distinctive figure",
+    "auto.lineage_hero_fig_fallback": "Page 1 preview (no figure extracted — shown to help you recall this paper)",
     "auto.lineage_arch_fig": "Model architecture / structure figure",
     "auto.lineage_arch_same": "The architecture figure is the same as the hero figure.",
     "auto.lineage_ai_abs": "AI abstract",

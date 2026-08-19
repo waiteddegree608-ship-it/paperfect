@@ -67,7 +67,8 @@ def _pack_batches(indices_texts, max_chars=1600):
 def _parse_json_array(text, expect_len):
     if not text:
         return None
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    from backend.services.model_pick import strip_think
+    cleaned = strip_think(text)
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -93,8 +94,10 @@ async def translate_batch_async(client, model, items, semaphore):
     if not client or not client.api_key or llm_balance_failed:
         return texts
     numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
-    from backend.services.model_pick import extra_body_for_model
+    from backend.services.model_pick import extra_body_for_model, reasoning_max_tokens
     extra = extra_body_for_model(model)
+    base_tokens = min(4096, 80 + 350 * len(texts))
+    max_tokens = reasoning_max_tokens(base_tokens, model)
     async with semaphore:
         for attempt in range(2):
             try:
@@ -113,9 +116,11 @@ async def translate_batch_async(client, model, items, semaphore):
                         {"role": "user", "content": numbered},
                     ],
                     temperature=0.1,
-                    max_tokens=min(4096, 80 + 350 * len(texts)),
+                    max_tokens=max_tokens,
                 )
-                if extra:
+                # Only try the CoT-disable hint on the first attempt in case a
+                # gateway rejects the extra_body field for this model.
+                if extra and attempt == 0:
                     kwargs["extra_body"] = extra
                 response = await client.chat.completions.create(**kwargs)
                 raw = (response.choices[0].message.content or "").strip()

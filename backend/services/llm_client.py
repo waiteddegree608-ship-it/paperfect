@@ -59,7 +59,7 @@ class PaperReaderBot:
         return full_text
 
     def _complete_text(self, paper_text: str, prompt_text: str) -> str:
-        from backend.services.model_pick import extra_body_for_model
+        from backend.services.model_pick import extra_body_for_model, strip_think
         extra = extra_body_for_model(self.model_name)
         messages = [
             {
@@ -89,7 +89,9 @@ class PaperReaderBot:
                     stream=True,
                     timeout=180.0,
                 )
-                if extra:
+                # Only try the CoT-disable hint on the first attempt; some
+                # gateways reject unknown extra_body fields for certain models.
+                if extra and attempt == 0:
                     kwargs["extra_body"] = extra
                 response = local.chat.completions.create(**kwargs)
                 result_text = ""
@@ -99,7 +101,7 @@ class PaperReaderBot:
                         result_text += content
                         print(content, end="", file=sys.stderr, flush=True)
                 print("\n", file=sys.stderr, flush=True)
-                return _re.sub(r"<think>.*?</think>", "", result_text, flags=_re.DOTALL).strip()
+                return strip_think(result_text)
             except Exception as e:
                 last_err = e
                 print(f"\n[API Error] Attempt {attempt+1}/{retries} failed: {e}", file=sys.stderr, flush=True)
@@ -206,8 +208,8 @@ class PaperReaderBot:
                                     print(content, end="", file=sys.stderr, flush=True)
                             print("\n", file=sys.stderr, flush=True)
                             
-                            text = re.sub(r'<think>.*?</think>', '', full_text, flags=re.DOTALL)
-                            return text.strip()
+                            from backend.services.model_pick import strip_think
+                            return strip_think(full_text)
                         except Exception as e:
                             print(f"\n[API Error] Attempt {attempt+1}/{retries} failed: {e}", file=sys.stderr, flush=True)
                             if attempt < retries - 1:

@@ -32,7 +32,7 @@ API_KEY = random.choice(API_KEYS) if API_KEYS else ""
 BASE_URL = cfg.get("annotator_api_url") or cfg.get("chat_api_url") or "https://opencode.ai/zen/go/v1"
 if not BASE_URL: BASE_URL = "https://opencode.ai/zen/go/v1"
 
-from backend.services.model_pick import pick_fast_text_model, extra_body_for_model
+from backend.services.model_pick import pick_fast_text_model, extra_body_for_model, reasoning_max_tokens, strip_think
 
 MODEL_NAME = pick_fast_text_model(cfg)
 if not MODEL_NAME:
@@ -145,6 +145,7 @@ def get_ai_annotations_for_pages(client, batch, md_content, lang="zh", max_retri
         user_msg = f"报告：\n{md_content}\n\n各页：\n{joined}"
 
     extra = extra_body_for_model(MODEL_NAME)
+    max_tokens = reasoning_max_tokens(1400, MODEL_NAME)
     for attempt in range(max_retries + 1):
         try:
             print(f"[{MODEL_NAME}] batch pages {[p for p, _ in batch]} try={attempt}", flush=True)
@@ -155,13 +156,13 @@ def get_ai_annotations_for_pages(client, batch, md_content, lang="zh", max_retri
                     {"role": "user", "content": user_msg},
                 ],
                 temperature=0.2,
-                max_tokens=1400,
+                max_tokens=max_tokens,
             )
-            if extra:
+            if extra and attempt == 0:
                 kwargs["extra_body"] = extra
             response = client.chat.completions.create(**kwargs)
             reply = (response.choices[0].message.content or "").strip()
-            reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
+            reply = strip_think(reply)
             data = None
             try:
                 data = json.loads(reply)
@@ -281,20 +282,23 @@ Carefully read the analysis report and strictly compare it with the current page
     ]
 
 
+    extra = extra_body_for_model(MODEL_NAME)
+    max_tokens = reasoning_max_tokens(2048, MODEL_NAME)
     for attempt in range(max_retries + 1):
         try:
             retry_label = f" (retry {attempt})" if attempt > 0 else ""
             print(f"[{MODEL_NAME}] Requesting annotations for page {page_num}...{retry_label}", flush=True)
-            extra = extra_body_for_model(MODEL_NAME)
             response = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=2048,
-                **({"extra_body": extra} if extra else {}),
+                max_tokens=max_tokens,
+                # Only try the CoT-disable hint once; drop it after a failure in
+                # case the gateway rejects the extra_body field for this model.
+                **({"extra_body": extra} if (extra and attempt == 0) else {}),
             )
-            
-            reply = response.choices[0].message.content.strip()
+
+            reply = strip_think((response.choices[0].message.content or "").strip())
             annotations = _extract_json_array(reply)
             
             if annotations is None:

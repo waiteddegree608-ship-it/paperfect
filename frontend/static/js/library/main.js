@@ -19,6 +19,38 @@ window.addEventListener('lang-changed', (e) => {
     currentLang.value = e.detail.lang;
 });
 
+// AI-generated abstracts/Q&A answers are written in Markdown; render them
+// properly instead of dumping raw "**bold**"/"- list" syntax as plain text.
+if (window.marked) {
+    window.marked.setOptions({ breaks: true, gfm: true });
+}
+function renderMarkdown(text) {
+    if (!text) return '';
+    try {
+        return window.marked ? window.marked.parse(text) : text;
+    } catch (e) {
+        return text;
+    }
+}
+
+// Backend stores several metadata fields (research_field, research_direction, ...)
+// as a JSON string like {"zh": "人工智能", "en": "Artificial Intelligence"} so both
+// languages are available without a re-tag. Any UI that displays these fields must
+// go through this helper instead of printing the raw string.
+function parseBilingualLabel(val) {
+    if (!val) return '';
+    if (typeof val === 'object') {
+        return val[currentLang.value] || val.zh || val.en || '';
+    }
+    if (typeof val === 'string' && val.trim().startsWith('{')) {
+        try {
+            const parsed = JSON.parse(val);
+            return parsed[currentLang.value] || parsed.zh || parsed.en || val;
+        } catch (e) { /* not JSON — plain legacy string value */ }
+    }
+    return val;
+}
+
 // Global Filter State
 const filterState = reactive({
     type: [], // paper_type
@@ -82,7 +114,7 @@ const DashboardView = {
                      :class="{ 'drop-target': dropFolderId === folder.id }"
                      style="padding:6px 12px; border-radius:999px; border:1px solid var(--header-border); background:var(--card-bg); font-size:12px; color:var(--text-color); cursor:default;"
                      :style="dropFolderId === folder.id ? { borderColor: 'var(--primary-accent)', borderStyle: 'dashed' } : {}">
-                    📁 {{ folder.name === '默认文件夹' && getLang() === 'en' ? 'Default Folder' : folder.name }}
+                    {{ folder.name === '默认文件夹' && getLang() === 'en' ? 'Default Folder' : folder.name }}
                 </div>
             </div>
  
@@ -1021,49 +1053,54 @@ const GraphView = {
                 </div>
             </div>
             <div style="flex:1;overflow:auto;padding:18px;" v-if="lineage">
-                <h3 style="margin-top:0;">{{ lineage.document.zh_title || lineage.document.title }}</h3>
-                <div style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">
-                    {{ (lineage.document.authors||[]).join(', ') }} · {{ lineage.document.year }} · {{ lineage.document.venue }}
-                    <span v-if="lineage.document.ccf_partition"> · CCF {{ lineage.document.ccf_partition }}</span>
+                <div class="lineage-hero-banner">
+                    <div v-if="lineage.dossier && lineage.dossier.hero_figure" class="lineage-hero-bg" :style="{backgroundImage: 'url(\'' + lineage.dossier.hero_figure.url + '\')'}"></div>
+                    <div class="lineage-hero-content">
+                        <h3 style="margin:0 0 6px;">{{ lineage.document.zh_title || lineage.document.title }}</h3>
+                        <div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">
+                            {{ (lineage.document.authors||[]).join(', ') }}<span v-if="(lineage.document.authors||[]).length"> · </span>{{ lineage.document.year }}
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                            <span v-if="lineage.document.venue" class="tag-badge" style="background:rgba(52,152,219,0.15);color:#3498db;">{{ lineage.document.venue }}</span>
+                            <span v-if="lineage.document.ccf_partition" class="tag-badge" style="background:rgba(231,76,60,0.15);color:#e74c3c;">CCF {{ lineage.document.ccf_partition }}</span>
+                        </div>
+                    </div>
                 </div>
-                <p v-if="t('auto.lineage_hint')" style="color:var(--text-muted);font-size:12px;margin:0 0 16px;">{{ t('auto.lineage_hint') }}</p>
                 <div style="display:grid;grid-template-columns:minmax(260px,0.95fr) minmax(360px,1.15fr);gap:24px;">
                     <div>
                         <h4>{{ t('auto.lineage_related') }}</h4>
                         <div v-if="!(lineage.related||[]).length" style="color:var(--text-muted);">{{ t('auto.lineage_empty') }}</div>
-                        <div v-for="r in lineage.related" :key="'rel'+r.id" class="doc-list-item" style="cursor:pointer;margin-bottom:8px;" @click="selectById(r.id)">
-                            <div class="doc-title">{{ r.zh_title || r.title }}</div>
-                            <div style="font-size:12px;color:var(--text-muted);">{{ formatReasons(r.reasons) }}</div>
+                        <div v-for="r in lineage.related" :key="'rel'+r.id" class="lineage-related-card" :style="r.hero_url ? {backgroundImage: 'url(\'' + r.hero_url + '\')'} : {}" @click="selectById(r.id)">
+                            <div class="lineage-related-card-overlay"></div>
+                            <div class="lineage-related-card-content">
+                                <div class="lineage-related-title">{{ r.zh_title || r.title }}</div>
+                                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">
+                                    <span v-for="reason in r.reasons" :key="reason" class="tag-badge" :style="reasonBadgeStyle(reason)">{{ formatReasons([reason]) }}</span>
+                                </div>
+                            </div>
                         </div>
                         <h4>{{ t('auto.lineage_refs') }}</h4>
                         <div v-for="(r,i) in lineage.references" :key="'ref'+i" style="padding:8px 0;border-bottom:1px solid var(--header-border);font-size:13px;">
-                            <div>{{ r.title }} <span v-if="r.ccf" style="color:#e74c3c;">CCF {{ r.ccf }}</span></div>
-                            <div style="color:var(--text-muted);font-size:12px;">
+                            <div>{{ r.title }} <span v-if="r.ccf" class="tag-badge" style="background:rgba(231,76,60,0.15);color:#e74c3c;font-size:11px;padding:2px 8px;">CCF {{ r.ccf }}</span></div>
+                            <div style="color:var(--text-muted);font-size:12px;margin-top:3px;">
                                 {{ r.year }} <span v-if="r.in_library">· {{ t('auto.lineage_in_lib') }}</span>
                             </div>
                         </div>
                     </div>
                     <div>
-                        <h4>{{ t('auto.lineage_dossier') }}</h4>
-                        <div v-if="lineage.dossier && lineage.dossier.hero_figure" style="margin-bottom:16px;">
-                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">{{ t('auto.lineage_hero_fig') }}</div>
-                            <img :src="lineage.dossier.hero_figure.url" style="max-width:100%;border-radius:8px;border:1px solid var(--header-border);background:#0b0b10;">
-                            <div v-if="lineage.dossier.hero_figure.caption" style="font-size:12px;color:var(--text-muted);margin-top:6px;">{{ lineage.dossier.hero_figure.caption }}</div>
-                        </div>
-                        <div v-if="lineage.dossier && lineage.dossier.arch_figure && (!lineage.dossier.hero_figure || lineage.dossier.arch_figure.filename !== lineage.dossier.hero_figure.filename)" style="margin-bottom:16px;">
+                        <h4 style="margin-bottom:14px;">{{ t('auto.lineage_dossier') }}</h4>
+                        <h5 style="margin:0 0 8px;font-size:13px;color:var(--text-muted);font-weight:600;">{{ t('auto.lineage_ai_abs') }}</h5>
+                        <div class="markdown-body" style="margin-bottom:20px;" v-html="renderMarkdown((lineage.dossier && lineage.dossier.ai_abstract) || lineage.document.abstract || t('auto.lineage_no_abs'))"></div>
+                        <div v-if="lineage.dossier && lineage.dossier.arch_figure && (!lineage.dossier.hero_figure || lineage.dossier.arch_figure.filename !== lineage.dossier.hero_figure.filename)" style="margin-bottom:18px;">
                             <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">{{ t('auto.lineage_arch_fig') }}</div>
-                            <img :src="lineage.dossier.arch_figure.url" style="max-width:100%;border-radius:8px;border:1px solid var(--header-border);background:#0b0b10;">
-                            <div v-if="lineage.dossier.arch_figure.caption" style="font-size:12px;color:var(--text-muted);margin-top:6px;">{{ lineage.dossier.arch_figure.caption }}</div>
+                            <div class="lineage-fig-frame"><img :src="lineage.dossier.arch_figure.url"></div>
                         </div>
-                        <div v-else-if="lineage.dossier && lineage.dossier.arch_figure && lineage.dossier.hero_figure && lineage.dossier.arch_figure.filename === lineage.dossier.hero_figure.filename" style="font-size:12px;color:var(--text-muted);margin:-8px 0 16px;">{{ t('auto.lineage_arch_same') }}</div>
-                        <h4>{{ t('auto.lineage_ai_abs') }}</h4>
-                        <div style="font-size:14px;line-height:1.7;white-space:pre-wrap;margin-bottom:18px;">{{ (lineage.dossier && lineage.dossier.ai_abstract) || lineage.document.abstract || t('auto.lineage_no_abs') }}</div>
                         <h4>{{ t('auto.lineage_qa') }}</h4>
                         <div v-if="!(lineage.dossier && lineage.dossier.qa && lineage.dossier.qa.length)" style="color:var(--text-muted);">{{ t('auto.lineage_no_qa') }}</div>
                         <div v-for="(item,i) in ((lineage.dossier && lineage.dossier.qa) || [])" :key="'qa'+i" style="margin-bottom:14px;padding:12px;border:1px solid var(--header-border);border-radius:10px;background:var(--card-bg);">
                             <div style="font-size:13px;font-weight:600;margin-bottom:6px;">{{ item.title }}</div>
                             <div v-if="item.question" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;white-space:pre-wrap;">{{ item.question }}</div>
-                            <div style="font-size:13px;line-height:1.65;white-space:pre-wrap;max-height:280px;overflow:auto;">{{ item.answer }}</div>
+                            <div class="markdown-body" style="font-size:13px;line-height:1.65;max-height:280px;overflow:auto;" v-html="renderMarkdown(item.answer)"></div>
                         </div>
                     </div>
                 </div>
@@ -1096,8 +1133,17 @@ const GraphView = {
             };
             return (reasons || []).map(r => map[r] || r).join(' · ');
         };
+        const REASON_COLORS = {
+            same_author: { background: 'rgba(155,89,182,0.15)', color: '#9b59b6' },
+            shared_keywords: { background: 'rgba(46,204,113,0.15)', color: '#2ecc71' },
+            same_field: { background: 'rgba(52,152,219,0.15)', color: '#3498db' },
+        };
+        const reasonBadgeStyle = (reason) => {
+            const c = REASON_COLORS[reason] || { background: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' };
+            return { background: c.background, color: c.color, fontSize: '11px', padding: '3px 9px' };
+        };
         onMounted(loadDocs);
-        return { docs, selected, lineage, selectDoc, selectById, formatReasons, t: translate };
+        return { docs, selected, lineage, selectDoc, selectById, formatReasons, reasonBadgeStyle, renderMarkdown, t: translate };
     }
 };
 
@@ -1107,7 +1153,7 @@ const SearchView = {
             <!-- Left Pane: Search Results -->
             <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 2px solid var(--header-border);">
                 <div v-if="loading" style="text-align: center; color: var(--text-muted); margin-top: 50px;">
-                    <div style="margin-bottom: 10px; font-size: 16px;">🔍 AI 正在思考并检索知识库，请稍候...</div>
+                    <div style="margin-bottom: 10px; font-size: 16px;">AI 正在思考并检索知识库，请稍候...</div>
                     <div style="font-size: 13px; opacity: 0.7;">（如果文献较多或需要深入阅读，可能需要10-20秒）</div>
                 </div>
                 <div v-else-if="results.length > 0">
@@ -1160,7 +1206,7 @@ const SearchView = {
                             style="flex: 1; background: var(--input-bg); border: 1px solid var(--header-border); color: var(--text-color); padding: 12px 15px; border-radius: 24px; outline: none; font-size: 14px;">
                         <button @click="sendMessage" :disabled="loading || !userInput.trim()" 
                             style="background: var(--primary-accent); border: none; color: white; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: (loading || !userInput.trim()) ? 0.5 : 1;">
-                            <span v-if="!loading" style="font-size: 18px;">➤</span>
+                            <svg v-if="!loading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                             <span v-else style="font-size: 12px;">...</span>
                         </button>
                     </div>
@@ -1474,6 +1520,7 @@ const app = createApp({
                         readerTabs.push(reactive({
                             book: t.book, title: t.title || t.book,
                             field: t.field || '', direction: t.direction || '',
+                            groupId: t.groupId || '',
                             hibernated: t.book !== data.active,
                             lastActive: Date.now(),
                         }));
@@ -1492,6 +1539,11 @@ const app = createApp({
                     }
                 });
             }, 60 * 1000);
+
+            document.addEventListener('click', hideTabContextMenu);
+            document.addEventListener('contextmenu', (e) => {
+                if (!e.target.closest || !e.target.closest('.reader-tab')) hideTabContextMenu();
+            });
         });
 
         onUnmounted(() => {
@@ -1603,7 +1655,7 @@ const app = createApp({
         const persistReaderTabs = () => {
             try {
                 localStorage.setItem(READER_STORAGE_KEY, JSON.stringify({
-                    tabs: readerTabs.map(t => ({ book: t.book, title: t.title, field: t.field, direction: t.direction })),
+                    tabs: readerTabs.map(t => ({ book: t.book, title: t.title, field: t.field, direction: t.direction, groupId: t.groupId || '' })),
                     active: activeReaderBook.value,
                 }));
             } catch (e) { /* ignore quota errors */ }
@@ -1619,6 +1671,7 @@ const app = createApp({
                     title: (doc && (doc.zh_title || doc.title)) || book,
                     field: (doc && doc.research_field) || '',
                     direction: (doc && doc.research_direction) || '',
+                    groupId: '',
                     hibernated: false,
                     lastActive: Date.now(),
                 });
@@ -1629,6 +1682,7 @@ const app = createApp({
             }
             activeReaderBook.value = book;
             readerWorkspaceVisible.value = true;
+            _expandGroupFor(tab);
             persistReaderTabs();
         };
         window.openReaderTab = openReaderTab;
@@ -1640,6 +1694,7 @@ const app = createApp({
             tab.lastActive = Date.now();
             activeReaderBook.value = book;
             readerWorkspaceVisible.value = true;
+            _expandGroupFor(tab);
             persistReaderTabs();
         };
 
@@ -1684,32 +1739,228 @@ const app = createApp({
 
         const toggleSmartGroup = () => { smartGroupOn.value = !smartGroupOn.value; };
 
-        const groupColor = (tab) => {
-            const key = (tab && (tab.field || tab.direction)) || 'default';
+        const _hashColor = (key) => {
             let h = 0;
-            for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+            const s = key || 'default';
+            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
             return GROUP_COLORS[h % GROUP_COLORS.length];
         };
 
-        // Cluster open tabs by discipline (research_field) then sub-field (research_direction),
-        // reusing metadata the backend already computed during auto-tagging — no extra AI call needed.
-        const groupedReaderTabs = computed(() => {
-            if (!smartGroupOn.value || readerTabs.length === 0) {
-                return readerTabs.map(t => ({ tab: t, groupBreak: false, groupLabel: '' }));
-            }
-            const sorted = [...readerTabs].sort((a, b) => {
-                const fa = a.field || '\uffff', fb = b.field || '\uffff';
-                if (fa !== fb) return fa.localeCompare(fb);
-                return (a.direction || '').localeCompare(b.direction || '');
-            });
-            let lastKey = null;
-            return sorted.map(t => {
-                const key = (t.field || translate('reader.uncategorized') || '未分类') + (t.direction ? ' · ' + t.direction : '');
-                const isBreak = key !== lastKey;
-                lastKey = key;
-                return { tab: t, groupBreak: isBreak, groupLabel: key };
+        // A tab's color is keyed by its manual drag-merge group first (so grouped
+        // tabs always share one color no matter what field they belong to),
+        // falling back to the parsed (non-JSON) research field otherwise.
+        const groupColor = (tab) => _hashColor(tab && (tab.groupId || parseBilingualLabel(tab.field)));
+
+        // Manual drag-merge grouping: dragging tab A onto tab B assigns both the
+        // same groupId and moves A next to B. Rendered as contiguous same-color tabs
+        // with a connecting bar (no text separator needed). Only active while smart
+        // grouping is off, since smart grouping owns the tab order by itself.
+        const manualGroupedReaderTabs = computed(() => {
+            return readerTabs.map((t, idx) => {
+                const prev = readerTabs[idx - 1];
+                const next = readerTabs[idx + 1];
+                const inGroup = !!t.groupId;
+                return {
+                    type: 'tab',
+                    tab: t,
+                    manualGroup: inGroup,
+                    groupStart: inGroup && (!prev || prev.groupId !== t.groupId),
+                    groupEnd: inGroup && (!next || next.groupId !== t.groupId),
+                };
             });
         });
+
+        // Smart grouping clusters open tabs by discipline (research_field) only —
+        // one coarse bucket per field, not sub-split by direction, so it actually
+        // consolidates instead of fragmenting into many tiny groups. Each bucket is
+        // collapsible: collapsed groups shrink down to a small chip (saving space
+        // for papers you're not looking at right now); the group holding the active
+        // tab expands by default so you never lose sight of what you're reading.
+        const groupCollapse = reactive({});
+
+        const _fieldKeyFor = (tab) => parseBilingualLabel(tab && tab.field) || translate('reader.uncategorized') || '未分类';
+
+        // Whenever a tab becomes active (opened or clicked), make sure its group
+        // isn't sitting collapsed — you should always be able to see what you're reading.
+        const _expandGroupFor = (tab) => {
+            const key = _fieldKeyFor(tab);
+            if (groupCollapse[key]) delete groupCollapse[key];
+        };
+
+        const toggleGroupCollapse = (key) => {
+            const hasActive = readerTabs.some(t => _fieldKeyFor(t) === key && t.book === activeReaderBook.value);
+            const effective = key in groupCollapse ? groupCollapse[key] : !hasActive;
+            groupCollapse[key] = !effective;
+        };
+
+        const groupedReaderTabs = computed(() => {
+            if (!smartGroupOn.value || readerTabs.length === 0) {
+                return manualGroupedReaderTabs.value;
+            }
+            const buckets = new Map();
+            readerTabs.forEach(t => {
+                const key = _fieldKeyFor(t);
+                if (!buckets.has(key)) buckets.set(key, []);
+                buckets.get(key).push(t);
+            });
+            const keys = Array.from(buckets.keys()).sort((a, b) => a.localeCompare(b));
+            const out = [];
+            keys.forEach(key => {
+                const members = buckets.get(key);
+                const hasActive = members.some(t => t.book === activeReaderBook.value);
+                const collapsed = key in groupCollapse ? groupCollapse[key] : !hasActive;
+                out.push({ type: 'chip', key, label: key, color: _hashColor(key), count: members.length, collapsed, hasActive });
+                if (!collapsed) {
+                    members.forEach(t => out.push({ type: 'tab', tab: t, manualGroup: false, groupStart: false, groupEnd: false }));
+                }
+            });
+            return out;
+        });
+
+        // ---- Tab drag-and-drop reordering (disabled while smart-group auto-sorts tabs) ----
+        const draggingBook = ref('');
+        let dragSrcBook = null;
+
+        const onTabDragStart = (e, book) => {
+            dragSrcBook = book;
+            draggingBook.value = book;
+            try {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', book);
+            } catch (err) { /* ignore */ }
+        };
+
+        const onTabDragOver = (e, _book) => {
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        };
+
+        let groupSeq = 0;
+        const newGroupId = () => 'g' + Date.now() + '_' + (groupSeq++);
+
+        // Dropping near the left/right edge of a tab just reorders (browser-like).
+        // Dropping on the middle ~44% of a tab merges src+target into one manual
+        // group (both take the same groupId, colored dot, and end up adjacent).
+        const onTabDrop = (e, targetBook) => {
+            const srcBook = dragSrcBook || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+            dragSrcBook = null;
+            draggingBook.value = '';
+            if (!srcBook || srcBook === targetBook) return;
+            const srcIdx = readerTabs.findIndex(t => t.book === srcBook);
+            const tgtIdx = readerTabs.findIndex(t => t.book === targetBook);
+            if (srcIdx === -1 || tgtIdx === -1) return;
+
+            let mergeZone = false;
+            let before = tgtIdx > srcIdx ? false : true;
+            try {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const relX = (e.clientX - rect.left) / rect.width;
+                mergeZone = relX > 0.28 && relX < 0.72;
+                before = relX <= 0.28;
+            } catch (err) { /* keep index-based fallback above */ }
+
+            const srcTab = readerTabs[srcIdx];
+            const tgtTab = readerTabs[tgtIdx];
+
+            if (mergeZone) {
+                const gid = tgtTab.groupId || srcTab.groupId || newGroupId();
+                readerTabs.forEach(t => { if (t.groupId && t.groupId === srcTab.groupId) t.groupId = gid; });
+                tgtTab.groupId = gid;
+                const [moved] = readerTabs.splice(srcIdx, 1);
+                moved.groupId = gid;
+                const newTgtIdx = readerTabs.findIndex(t => t.book === targetBook);
+                readerTabs.splice(newTgtIdx + 1, 0, moved);
+            } else {
+                const [moved] = readerTabs.splice(srcIdx, 1);
+                let insertAt = readerTabs.findIndex(t => t.book === targetBook);
+                if (!before) insertAt += 1;
+                readerTabs.splice(insertAt, 0, moved);
+                if (moved.groupId) {
+                    const idx2 = readerTabs.indexOf(moved);
+                    const prevT = readerTabs[idx2 - 1];
+                    const nextT = readerTabs[idx2 + 1];
+                    const stillAdjacent = (prevT && prevT.groupId === moved.groupId) || (nextT && nextT.groupId === moved.groupId);
+                    if (!stillAdjacent) moved.groupId = '';
+                }
+            }
+            persistReaderTabs();
+        };
+
+        const onTabDragEnd = () => {
+            dragSrcBook = null;
+            draggingBook.value = '';
+        };
+
+        // ---- Tab right-click context menu ----
+        const contextMenuTargetBook = ref('');
+
+        const hideTabContextMenu = () => {
+            const menu = document.getElementById('readerTabContextMenu');
+            if (menu) menu.style.display = 'none';
+        };
+
+        const showTabContextMenu = (e, book) => {
+            contextMenuTargetBook.value = book;
+            const menu = document.getElementById('readerTabContextMenu');
+            if (!menu) return;
+            menu.style.display = 'block';
+            const x = Math.min(e.clientX, window.innerWidth - 180);
+            const y = Math.min(e.clientY, window.innerHeight - 160);
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+        };
+
+        const ctxCloseTab = () => {
+            const book = contextMenuTargetBook.value;
+            hideTabContextMenu();
+            if (book) closeReaderTab(book);
+        };
+
+        const ctxCloseOthers = () => {
+            const keep = contextMenuTargetBook.value;
+            hideTabContextMenu();
+            if (!keep) return;
+            for (let i = readerTabs.length - 1; i >= 0; i--) {
+                if (readerTabs[i].book !== keep) readerTabs.splice(i, 1);
+            }
+            const tab = readerTabs.find(t => t.book === keep);
+            if (tab) { tab.hibernated = false; tab.lastActive = Date.now(); }
+            activeReaderBook.value = keep;
+            readerWorkspaceVisible.value = true;
+            persistReaderTabs();
+        };
+
+        const ctxCloseRight = () => {
+            const book = contextMenuTargetBook.value;
+            hideTabContextMenu();
+            const idx = readerTabs.findIndex(t => t.book === book);
+            if (idx === -1) return;
+            const activeWasRemoved = readerTabs.slice(idx + 1).some(t => t.book === activeReaderBook.value);
+            readerTabs.splice(idx + 1);
+            if (activeWasRemoved) {
+                const tab = readerTabs[idx];
+                if (tab) { tab.hibernated = false; tab.lastActive = Date.now(); }
+                activeReaderBook.value = book;
+            }
+            persistReaderTabs();
+        };
+
+        const ctxCloseAllFromMenu = () => {
+            hideTabContextMenu();
+            closeAllReaderTabs();
+        };
+
+        const contextMenuTargetHasGroup = computed(() => {
+            const tab = readerTabs.find(t => t.book === contextMenuTargetBook.value);
+            return !!(tab && tab.groupId);
+        });
+
+        const ctxUngroup = () => {
+            const book = contextMenuTargetBook.value;
+            hideTabContextMenu();
+            const tab = readerTabs.find(t => t.book === book);
+            if (tab) tab.groupId = '';
+            persistReaderTabs();
+        };
 
         // ---- Toolbox: run PDF tools on any document(s) without opening the reader ----
         let toolboxDocs = [];
@@ -1923,6 +2174,9 @@ const app = createApp({
             readerTabs, activeReaderBook, readerWorkspaceVisible, smartGroupOn, groupedReaderTabs,
             switchReaderTab, closeReaderTab, closeAllReaderTabs, showLibraryFromReader, wakeReaderTab,
             readerFrameSrc, groupColor, toggleSmartGroup,
+            draggingBook, onTabDragStart, onTabDragOver, onTabDrop, onTabDragEnd,
+            showTabContextMenu, ctxCloseTab, ctxCloseOthers, ctxCloseRight, ctxCloseAllFromMenu,
+            contextMenuTargetHasGroup, ctxUngroup, toggleGroupCollapse,
         };
     }
 });

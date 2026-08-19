@@ -481,7 +481,10 @@ def get_document_figure(doc_id: int, filename: str, db: Session = Depends(get_db
     from fastapi.responses import FileResponse
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="bad filename")
-    if not re.match(r"(?i)^[A-Za-z0-9_.-]+\.(png|jpg|jpeg|webp)$", filename):
+    # Figure filenames may be prefixed with the (space-containing) paper title,
+    # e.g. "My Paper Title_Figure_1.png" — only block path separators/traversal
+    # above, and just check the extension here.
+    if not re.match(r"(?i)^.+\.(png|jpg|jpeg|webp)$", filename):
         raise HTTPException(status_code=400, detail="bad filename")
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
@@ -660,6 +663,9 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
     cfg = load_config()
     client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"], timeout=300.0)
     model = cfg.get("chat_model", "Qwen/Qwen2.5-72B-Instruct")
+    from backend.services.model_pick import extra_body_for_model, reasoning_max_tokens, strip_think
+    chat_extra = extra_body_for_model(model)
+    chat_max_tokens = reasoning_max_tokens(8192, model)
     tool_results_summary = []
     fallback_ids = [d.id for d in candidates[:8]]
 
@@ -696,14 +702,17 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
                 model=model,
                 messages=messages,
                 tools=current_tools,
-                max_tokens=8192,
+                max_tokens=chat_max_tokens,
                 temperature=0.4,
+                # Only try the CoT-disable hint on the first round; some gateways
+                # reject unknown extra_body fields for certain models.
+                **({"extra_body": chat_extra} if (chat_extra and iteration == 0) else {}),
             )
             message = response.choices[0].message
             if message.tool_calls:
                 assistant_msg = {
                     "role": "assistant",
-                    "content": message.content or "",
+                    "content": strip_think(message.content or ""),
                     "tool_calls": [
                         {
                             "id": t.id,
@@ -749,7 +758,7 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
                     ]
                 continue
 
-            content = message.content or ""
+            content = strip_think(message.content or "")
             parsed = extract_json(content)
             if parsed and "name" in parsed and "arguments" in parsed:
                 continue

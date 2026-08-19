@@ -356,7 +356,7 @@ def analyze_paper(pdf_path: str):
     Extract title, venue, abstract, and keywords from the first few pages of a PDF paper.
     """
     config = load_config()
-    from backend.services.model_pick import pick_fast_text_model, extra_body_for_model
+    from backend.services.model_pick import pick_fast_text_model, extra_body_for_model, reasoning_max_tokens
     api_key = config.get("paper_api_key") or config.get("chat_api_key") or config.get("parse_api_key")
     if isinstance(api_key, list):
         api_key = api_key[0] if api_key else ""
@@ -472,6 +472,7 @@ def analyze_paper(pdf_path: str):
         """
         
         extra = extra_body_for_model(model)
+        max_tokens = reasoning_max_tokens(2048, model)
         content = ""
         result = None
         last_err = None
@@ -480,9 +481,11 @@ def analyze_paper(pdf_path: str):
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=2048,
+                max_tokens=max_tokens,
             )
-            if extra:
+            # Only try the CoT-disable hint once; some gateways reject unknown
+            # extra_body fields for certain models, so drop it after a failure.
+            if extra and attempt == 0:
                 kwargs["extra_body"] = extra
             try:
                 response = client.chat.completions.create(**kwargs)

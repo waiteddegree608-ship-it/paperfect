@@ -61,6 +61,19 @@ const client = new OpenAI({
 
 const is_deepseek = modelName.toLowerCase().includes("deepseek") || customBaseURL.toLowerCase().includes("deepseek");
 
+// Hybrid-reasoning models (MiMo, R1, QwQ, ...) emit a <think>...</think> trace
+// before answering unless told not to, and that trace eats into the same
+// max_tokens budget as the JSON we actually want — mirrors backend/services/model_pick.py.
+const REASONING_RE = /thinking|reasoner|qwq|\br1\b|mimo/i;
+const isReasoningModel = REASONING_RE.test(String(modelName || ''));
+
+function stripThink(text) {
+    if (!text) return text || '';
+    let cleaned = String(text).replace(/<think>[\s\S]*?<\/think>/gi, '');
+    cleaned = cleaned.replace(/<think>[\s\S]*/i, '');
+    return cleaned.trim();
+}
+
 const SLIDE_W = 1280;
 const SLIDE_H = 720;
 const PX = 128; // px per inch for pptxgen LAYOUT_16x9
@@ -771,16 +784,19 @@ ${mdShort}
                 }];
             }
 
-            const thinkingOff = /thinking|reasoner|qwq|\br1\b/i.test(String(modelName || ''));
+            // Reasoning models get extra token headroom (their <think> trace
+            // shares the max_tokens budget) and only get the CoT-disable hint
+            // on the first try, in case a gateway rejects it for this model.
+            const maxTokens = isReasoningModel ? 6000 : 2048;
             const response = await client.chat.completions.create({
                 model: modelName,
                 messages,
                 temperature: 0.2,
-                max_tokens: 2048,
-                ...(thinkingOff ? { extra_body: { enable_thinking: false } } : {}),
+                max_tokens: maxTokens,
+                ...(isReasoningModel && attempt === 1 ? { extra_body: { enable_thinking: false } } : {}),
             });
 
-            const result = response.choices[0].message.content || '';
+            const result = stripThink(response.choices[0].message.content || '');
             let parsed = null;
             const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
             const titled = result.match(/\{\s*"slide_title"[\s\S]*\}/);

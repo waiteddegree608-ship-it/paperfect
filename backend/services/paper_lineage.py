@@ -110,6 +110,7 @@ def build_lineage(db, doc: Document) -> Dict[str, Any]:
                 "reasons": reasons,
                 "score": score,
                 "original_filename": o.original_filename,
+                "hero_url": _hero_thumb_url(o),
             })
     related.sort(key=lambda x: -x["score"])
     try:
@@ -198,6 +199,12 @@ _FIG_CAP_RE = re.compile(
     r"(?:Figure|Fig\.?)\s*(\d+)\s*[:.\-–—]?\s*(.+)",
     re.I,
 )
+# Matches both the current bare "Figure_1.png" naming and the legacy
+# "{book_name}_Figure_1.png" naming (extract_semantic_figures used to prefix
+# the book title for uniqueness). Anchored on "figure_<digits>" right before
+# the extension so a book title containing digits (e.g. "VTON 360") never
+# gets mistaken for the figure number.
+_FIG_FILE_RE = re.compile(r"(?i)figure_(\d+)\.(png|jpg|jpeg|webp)$")
 
 
 def _extract_figure_captions(pdf_path: str, max_pages: int = 14) -> Dict[str, str]:
@@ -223,18 +230,67 @@ def _extract_figure_captions(pdf_path: str, max_pages: int = 14) -> Dict[str, st
     return caps
 
 
+def _fig_num(name: str) -> str:
+    m = _FIG_FILE_RE.search(name)
+    return m.group(1) if m else ""
+
+
 def _list_figure_files(img_dir: str) -> List[str]:
     if not os.path.isdir(img_dir):
         return []
-    files = []
-    for name in os.listdir(img_dir):
-        if re.match(r"(?i)figure_\d+\.(png|jpg|jpeg|webp)$", name):
-            files.append(name)
-    def _num(n):
-        m = re.search(r"(\d+)", n)
-        return int(m.group(1)) if m else 999
-    files.sort(key=_num)
+    files = [name for name in os.listdir(img_dir) if _FIG_FILE_RE.search(name)]
+    def _sort_key(n):
+        num = _fig_num(n)
+        return int(num) if num else 999
+    files.sort(key=_sort_key)
     return files
+
+
+def _hero_thumb_url(o: Document) -> Any:
+    """Small recall-thumbnail for the 'related in library' card backdrop.
+    Prefers an already-extracted figure; falls back to generating (and
+    caching on disk) a page-1 render so the backdrop is present on first
+    view too, not just for papers someone already opened the dossier of."""
+    book = (o.original_filename or "").replace(".pdf", "")
+    if not book:
+        return None
+    target_dir = os.path.join(get_base_dir(), "data", "papers", book)
+    img_dir = os.path.join(target_dir, "images")
+    files = _list_figure_files(img_dir)
+    name = files[0] if files else None
+    if not name:
+        pdf_path = o.file_path if o.file_path and os.path.isfile(o.file_path) else os.path.join(target_dir, "raw", f"{book}.pdf")
+        name = _ensure_fallback_thumbnail(pdf_path, img_dir)
+    if not name:
+        return None
+    return f"/api/library/documents/{o.id}/figures/{name}"
+
+
+def _ensure_fallback_thumbnail(pdf_path: str, img_dir: str) -> str | None:
+    """When a paper has no extracted Figure_N.png (parse skipped, extraction
+    failed, or the PDF doesn't use standard 'Figure N' captions), render page 1
+    as a lightweight thumbnail so every paper still has *some* recognizable
+    visual to help the user recall which paper this is."""
+    thumb_name = "_page1_thumb.png"
+    thumb_path = os.path.join(img_dir, thumb_name)
+    if os.path.isfile(thumb_path):
+        return thumb_name
+    if not pdf_path or not os.path.isfile(pdf_path):
+        return None
+    try:
+        import fitz
+        os.makedirs(img_dir, exist_ok=True)
+        pdoc = fitz.open(pdf_path)
+        try:
+            if pdoc.page_count == 0:
+                return None
+            pix = pdoc[0].get_pixmap(dpi=150)
+            pix.save(thumb_path)
+        finally:
+            pdoc.close()
+        return thumb_name
+    except Exception:
+        return None
 
 
 def _parse_kb_qa(kb_path: str) -> List[Dict[str, str]]:
@@ -301,10 +357,7 @@ def _build_dossier(doc: Document, target_dir: str, pdf_path: str) -> Dict[str, A
     book = (doc.original_filename or "").replace(".pdf", "")
 
     def _fig(name: str, role: str):
-        num = ""
-        m = re.search(r"(\d+)", name)
-        if m:
-            num = m.group(1)
+        num = _fig_num(name)
         return {
             "filename": name,
             "url": f"/api/library/documents/{doc.id}/figures/{name}",
@@ -315,10 +368,7 @@ def _build_dossier(doc: Document, target_dir: str, pdf_path: str) -> Dict[str, A
     hero = _fig(files[0], "hero") if files else None
     arch = None
     for name in files:
-        num = ""
-        m = re.search(r"(\d+)", name)
-        if m:
-            num = m.group(1)
+        num = _fig_num(name)
         blob = f"{name} {caps.get(num) or ''}"
         if _ARCH_RE.search(blob):
             arch = _fig(name, "architecture")
@@ -330,6 +380,19 @@ def _build_dossier(doc: Document, target_dir: str, pdf_path: str) -> Dict[str, A
         # second figure is often the model if captions didn't match
         if len(files) >= 2:
             arch = _fig(files[1], "architecture")
+
+    if not hero:
+        # No standard Figure_N.png was extracted (parse skipped/failed, or the
+        # PDF doesn't use 'Figure N' captions) — fall back to a page-1 render
+        # so the user still has a visual anchor for recalling this paper.
+        thumb_name = _ensure_fallback_thumbnail(pdf_path, img_dir)
+        if thumb_name:
+            hero = {
+                "filename": thumb_name,
+                "url": f"/api/library/documents/{doc.id}/figures/{thumb_name}",
+                "caption": "",
+                "role": "page1",
+            }
 
     pipeline = {}
     try:
