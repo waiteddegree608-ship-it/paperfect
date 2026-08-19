@@ -16,7 +16,20 @@ from backend.services.paper_tools import (
     export_markdown_or_latex,
     ocr_pdf,
     add_text_markup,
+    rotate_pdf,
+    split_pdf,
+    merge_pdfs,
+    compress_pdf,
+    watermark_pdf,
+    protect_pdf,
+    unlock_pdf,
 )
+
+
+class MergeRequest(BaseModel):
+    book_names: List[str]
+    sources: Optional[List[str]] = None  # per-book source: raw | translated | annotated
+    out_name: Optional[str] = None
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
@@ -114,6 +127,127 @@ def api_ocr(book_name: str = Query(...), lang: str = "eng", source: str = "raw")
     except Exception as e:
         raise HTTPException(500, str(e))
     return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/rotate")
+def api_rotate(book_name: str = Query(...), angle: int = 90, source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_rotated.pdf")
+        rotate_pdf(pdf, out, angle=angle)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/split")
+def api_split(book_name: str = Query(...), start: int = 1, end: Optional[int] = None, source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_p{start}-{end or 'end'}.pdf")
+        split_pdf(pdf, out, start=start, end=end)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/compress")
+def api_compress(book_name: str = Query(...), source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_compressed.pdf")
+        compress_pdf(pdf, out)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/watermark")
+def api_watermark(book_name: str = Query(...), text: str = Query(...), opacity: float = 0.15, source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_watermarked.pdf")
+        watermark_pdf(pdf, out, text=text, opacity=opacity)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/protect")
+def api_protect(book_name: str = Query(...), password: str = Query(...), source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_protected.pdf")
+        protect_pdf(pdf, out, password=password)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/unlock")
+def api_unlock(book_name: str = Query(...), password: str = "", source: str = "raw"):
+    try:
+        pdf = resolve_pdf(book_name, source)
+        out = os.path.join(_exports_dir(book_name), f"{book_name}_unlocked.pdf")
+        unlock_pdf(pdf, out, password=password)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": _download_url(book_name, out)}
+
+
+@router.post("/merge")
+def api_merge(req: MergeRequest):
+    if len(req.book_names) < 2:
+        raise HTTPException(400, "合并至少需要两篇文献")
+    sources = req.sources or ["raw"] * len(req.book_names)
+    try:
+        paths = [
+            resolve_pdf(name, sources[i] if i < len(sources) else "raw")
+            for i, name in enumerate(req.book_names)
+        ]
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    out_name = os.path.basename(req.out_name or ("merged_" + "_".join(req.book_names)))[:80] or "merged"
+    out_dir = os.path.join(get_base_dir(), "data", "exports")
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, f"{out_name}.pdf")
+    try:
+        merge_pdfs(paths, out)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"status": "success", "download": f"/api/tools/download_global?file={quote(os.path.basename(out))}"}
+
+
+@router.get("/download_global")
+def api_download_global(file: str = Query(...)):
+    safe_file = os.path.basename(file)
+    base = os.path.normpath(os.path.join(get_base_dir(), "data", "exports"))
+    full = os.path.normpath(os.path.join(base, safe_file))
+    try:
+        common = os.path.commonpath([base, full])
+    except ValueError:
+        raise HTTPException(403, "invalid path")
+    if common != base or not os.path.isfile(full):
+        raise HTTPException(403, "invalid path")
+    return FileResponse(full, filename=safe_file)
 
 
 @router.post("/markup")

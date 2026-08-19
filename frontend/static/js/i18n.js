@@ -16,6 +16,25 @@ const TRANSLATIONS = {
     "nav.toggle_theme": "切换昼夜模式",
     "nav.github": "前往 GitHub 项目主页",
 
+    // ── Toolbox (batch PDF tools, no need to open a paper) ──
+    "toolbox.title": "工具箱",
+    "toolbox.pick_docs": "选择文献（合并需选 2 篇及以上）",
+    "toolbox.search_placeholder": "搜索标题 / 文件名...",
+    "toolbox.pick_tool": "选择工具",
+    "toolbox.tool_merge": "合并 PDF（多选）",
+    "toolbox.run": "执行",
+    "toolbox.running": "执行中...",
+    "toolbox.no_docs": "无匹配文献",
+    "toolbox.angle": "旋转角度",
+    "toolbox.range": "页面范围（如 1-5）",
+    "toolbox.wm_text": "水印文字",
+    "toolbox.password": "设置密码",
+    "toolbox.password_current": "当前密码（无则留空）",
+    "toolbox.merge_hint": "请在上方勾选 2 篇及以上文献，将按勾选顺序合并为一个 PDF。",
+    "toolbox.pick_at_least_one": "请至少选择一篇文献",
+    "toolbox.merge_need_two": "合并至少需要选择两篇文献",
+    "toolbox.download": "下载合并结果",
+
     // ── Dashboard ──
     "dash.upload_title": "拖入 PDF 或点击此处选择文件",
     "dash.upload_sub": "支持论文与教材的深度解析",
@@ -110,6 +129,12 @@ const TRANSLATIONS = {
     "chat.tool_md": "导出 Markdown",
     "chat.tool_tex": "导出 LaTeX",
     "chat.tool_ocr": "OCR 可检索 PDF",
+    "chat.tool_rotate": "旋转 PDF",
+    "chat.tool_split": "提取页面范围",
+    "chat.tool_compress": "压缩 PDF",
+    "chat.tool_watermark": "添加水印",
+    "chat.tool_protect": "加密 PDF",
+    "chat.tool_unlock": "解密 PDF",
 
     // ── Universal search ──
     "search.placeholder": "搜索文献...",
@@ -202,6 +227,25 @@ const TRANSLATIONS = {
     "nav.back_home": "Back to Home",
     "nav.toggle_theme": "Toggle Light/Dark",
     "nav.github": "Go to GitHub Repository",
+
+    // ── Toolbox ──
+    "toolbox.title": "Toolbox",
+    "toolbox.pick_docs": "Pick document(s) (merge needs 2+)",
+    "toolbox.search_placeholder": "Search title / filename...",
+    "toolbox.pick_tool": "Choose a tool",
+    "toolbox.tool_merge": "Merge PDFs (multi-select)",
+    "toolbox.run": "Run",
+    "toolbox.running": "Running...",
+    "toolbox.no_docs": "No matching documents",
+    "toolbox.angle": "Rotation angle",
+    "toolbox.range": "Page range (e.g. 1-5)",
+    "toolbox.wm_text": "Watermark text",
+    "toolbox.password": "Set password",
+    "toolbox.password_current": "Current password (leave empty if none)",
+    "toolbox.merge_hint": "Check 2+ documents above; they will be merged in the checked order.",
+    "toolbox.pick_at_least_one": "Please select at least one document",
+    "toolbox.merge_need_two": "Merging needs at least two documents",
+    "toolbox.download": "Download merged PDF",
 
     // ── Dashboard ──
     "dash.upload_title": "Drop PDF here or click to select",
@@ -297,6 +341,12 @@ const TRANSLATIONS = {
     "chat.tool_md": "Export Markdown",
     "chat.tool_tex": "Export LaTeX",
     "chat.tool_ocr": "OCR searchable PDF",
+    "chat.tool_rotate": "Rotate PDF",
+    "chat.tool_split": "Extract page range",
+    "chat.tool_compress": "Compress PDF",
+    "chat.tool_watermark": "Add watermark",
+    "chat.tool_protect": "Encrypt PDF",
+    "chat.tool_unlock": "Decrypt PDF",
 
     // ── Universal search ──
     "search.placeholder": "Search documents...",

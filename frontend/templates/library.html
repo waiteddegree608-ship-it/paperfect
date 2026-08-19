@@ -792,6 +792,9 @@
                 </button>
                 <button class="nav-tab" :class="{active: currentMainTab === 'dashboard'}" @click="switchMainTab('dashboard')" v-text="t('nav.my_files')" v-show="currentMainTab !== 'prompts'"></button>
                 <button class="nav-tab" :class="{active: currentMainTab === 'auto'}" @click="switchMainTab('auto')" v-text="t('nav.auto_classify')" v-show="currentMainTab !== 'prompts'"></button>
+                <button class="icon-btn" @click="openToolbox" :title="t('toolbox.title')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                </button>
                 <button class="icon-btn" @click="openSettings" :title="t('nav.settings')">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                 </button>
@@ -918,6 +921,46 @@
                 </div>
                 
                 <button class="save-btn" id="settingsSaveBtn" onclick="window.saveSettings()" data-i18n="settings.save_btn">保存配置并全局生效</button>
+            </div>
+        </div>
+
+        <!-- Toolbox Modal (batch PDF tools usable without opening a paper) -->
+        <div class="modal-overlay" id="toolboxModal">
+            <div class="modal-content" style="width: 560px; max-height: 88vh; overflow-y: auto;">
+                <div class="modal-header">
+                    <h2 data-i18n="toolbox.title">工具箱</h2>
+                    <button class="close-btn" onclick="document.getElementById('toolboxModal').classList.remove('active')">&times;</button>
+                </div>
+
+                <div class="form-group">
+                    <label data-i18n="toolbox.pick_docs">选择文献（合并需选 2 篇及以上）</label>
+                    <input type="text" id="toolbox-doc-search" data-i18n-placeholder="toolbox.search_placeholder" placeholder="搜索标题 / 文件名..." style="margin-bottom:8px;">
+                    <div id="toolbox-doc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--header-border);border-radius:8px;padding:6px;"></div>
+                </div>
+
+                <div class="form-group">
+                    <label data-i18n="toolbox.pick_tool">选择工具</label>
+                    <select id="toolbox-tool-select" onchange="window.onToolboxToolChange()" style="width:100%;">
+                        <option value="images" data-i18n="chat.tool_pages">导出页面为图片</option>
+                        <option value="figures" data-i18n="chat.tool_figures">导出论文配图</option>
+                        <option value="docx" data-i18n="chat.tool_docx">转为 Word</option>
+                        <option value="md" data-i18n="chat.tool_md">导出 Markdown</option>
+                        <option value="tex" data-i18n="chat.tool_tex">导出 LaTeX</option>
+                        <option value="ocr" data-i18n="chat.tool_ocr">OCR 可检索 PDF</option>
+                        <option value="rotate" data-i18n="chat.tool_rotate">旋转 PDF</option>
+                        <option value="split" data-i18n="chat.tool_split">提取页面范围</option>
+                        <option value="compress" data-i18n="chat.tool_compress">压缩 PDF</option>
+                        <option value="watermark" data-i18n="chat.tool_watermark">添加水印</option>
+                        <option value="protect" data-i18n="chat.tool_protect">加密 PDF</option>
+                        <option value="unlock" data-i18n="chat.tool_unlock">解密 PDF</option>
+                        <option value="merge" data-i18n="toolbox.tool_merge">合并 PDF（多选）</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="toolbox-params"></div>
+
+                <button class="save-btn" id="toolboxRunBtn" onclick="window.runToolboxTool()" data-i18n="toolbox.run">执行</button>
+                <div id="toolbox-result" style="margin-top:10px;font-size:13px;color:var(--text-muted);word-break:break-all;"></div>
             </div>
         </div>
 

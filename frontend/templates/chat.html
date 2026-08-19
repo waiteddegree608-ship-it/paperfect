@@ -417,6 +417,13 @@
                 <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('md')" data-i18n="chat.tool_md">导出 Markdown</button>
                 <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('tex')" data-i18n="chat.tool_tex">导出 LaTeX</button>
                 <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('ocr')" data-i18n="chat.tool_ocr">OCR 可检索 PDF</button>
+                <div style="border-top:1px solid var(--pane-border);margin:8px 0;"></div>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('rotate')" data-i18n="chat.tool_rotate">旋转 PDF</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('split')" data-i18n="chat.tool_split">提取页面范围</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('compress')" data-i18n="chat.tool_compress">压缩 PDF</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('watermark')" data-i18n="chat.tool_watermark">添加水印</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('protect')" data-i18n="chat.tool_protect">加密 PDF</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('unlock')" data-i18n="chat.tool_unlock">解密 PDF</button>
             </div>
         </div>
     </div>
@@ -652,6 +659,33 @@
                 tex: `/api/tools/export/text?book_name=${encodeURIComponent(book)}&fmt=tex`,
                 ocr: `/api/tools/ocr?book_name=${encodeURIComponent(book)}`,
             };
+            // Tools that need one extra parameter via a lightweight prompt()
+            if (kind === 'rotate') {
+                const angle = prompt('旋转角度（顺时针，90/180/270）', '90');
+                if (angle === null) return;
+                endpoints.rotate = `/api/tools/rotate?book_name=${encodeURIComponent(book)}&angle=${encodeURIComponent(angle || '90')}`;
+            } else if (kind === 'split') {
+                const range = prompt('输入页面范围，例如 1-5', '1-5');
+                if (range === null) return;
+                const m = String(range).match(/(\d+)\s*-\s*(\d+)/);
+                const start = m ? m[1] : (range || '1');
+                const end = m ? m[2] : '';
+                endpoints.split = `/api/tools/split?book_name=${encodeURIComponent(book)}&start=${encodeURIComponent(start)}` + (end ? `&end=${encodeURIComponent(end)}` : '');
+            } else if (kind === 'watermark') {
+                const text = prompt('水印文字', 'Paperfect');
+                if (text === null || !text.trim()) return;
+                endpoints.watermark = `/api/tools/watermark?book_name=${encodeURIComponent(book)}&text=${encodeURIComponent(text)}`;
+            } else if (kind === 'protect') {
+                const pwd = prompt('设置打开密码', '');
+                if (pwd === null || !pwd.trim()) return;
+                endpoints.protect = `/api/tools/protect?book_name=${encodeURIComponent(book)}&password=${encodeURIComponent(pwd)}`;
+            } else if (kind === 'unlock') {
+                const pwd = prompt('输入当前密码（若无密码可留空）', '');
+                if (pwd === null) return;
+                endpoints.unlock = `/api/tools/unlock?book_name=${encodeURIComponent(book)}&password=${encodeURIComponent(pwd)}`;
+            } else if (kind === 'compress') {
+                endpoints.compress = `/api/tools/compress?book_name=${encodeURIComponent(book)}`;
+            }
             const url = endpoints[kind];
             if (!url) return;
             const btn = document.getElementById('btn-tools');

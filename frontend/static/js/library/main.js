@@ -1554,6 +1554,158 @@ const app = createApp({
             document.getElementById('settingsModal').classList.remove('active');
         };
 
+        // ---- Toolbox: run PDF tools on any document(s) without opening the reader ----
+        let toolboxDocs = [];
+        const toolboxSelected = new Set();
+
+        const renderToolboxDocs = (filterText) => {
+            const box = document.getElementById('toolbox-doc-list');
+            if (!box) return;
+            const q = (filterText || '').trim().toLowerCase();
+            const filtered = toolboxDocs.filter(d => {
+                if (!q) return true;
+                const hay = `${d.title || ''} ${d.zh_title || ''} ${d.original_filename || ''}`.toLowerCase();
+                return hay.includes(q);
+            }).slice(0, 200);
+            box.innerHTML = filtered.map(d => {
+                const book = (d.original_filename || '').replace(/\.pdf$/i, '');
+                const label = d.zh_title || d.title || book;
+                const checked = toolboxSelected.has(book) ? 'checked' : '';
+                return `<label class="checkbox-row" style="display:flex;gap:6px;padding:4px 2px;">
+                    <input type="checkbox" data-book="${book}" ${checked} onchange="window.onToolboxDocToggle(this)">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${label}">${label}</span>
+                </label>`;
+            }).join('') || `<div style="color:var(--text-muted);font-size:12px;padding:6px;">${translate('toolbox.no_docs') || '无匹配文献'}</div>`;
+        };
+
+        window.onToolboxDocToggle = (el) => {
+            const book = el.getAttribute('data-book');
+            if (el.checked) toolboxSelected.add(book);
+            else toolboxSelected.delete(book);
+        };
+
+        const TOOLBOX_PARAM_HTML = {
+            images: '<label>DPI</label><input type="number" id="tb-dpi" value="300" min="72" max="600">',
+            figures: '<label>DPI</label><input type="number" id="tb-dpi" value="300" min="72" max="600">',
+            docx: '',
+            md: '',
+            tex: '',
+            ocr: '',
+            compress: '',
+            rotate: '<label data-i18n="toolbox.angle">旋转角度</label><input type="number" id="tb-angle" value="90" step="90">',
+            split: '<label data-i18n="toolbox.range">页面范围（如 1-5）</label><input type="text" id="tb-range" placeholder="1-5" value="1-5">',
+            watermark: '<label data-i18n="toolbox.wm_text">水印文字</label><input type="text" id="tb-text" placeholder="Paperfect" value="Paperfect">',
+            protect: '<label data-i18n="toolbox.password">设置密码</label><input type="text" id="tb-password" placeholder="password">',
+            unlock: '<label data-i18n="toolbox.password_current">当前密码（无则留空）</label><input type="text" id="tb-password" placeholder="">',
+            merge: '<div style="font-size:12px;color:var(--text-muted);" data-i18n="toolbox.merge_hint">请在上方勾选 2 篇及以上文献，将按勾选顺序合并为一个 PDF。</div>',
+        };
+
+        window.onToolboxToolChange = () => {
+            const sel = document.getElementById('toolbox-tool-select');
+            const wrap = document.getElementById('toolbox-params');
+            if (!sel || !wrap) return;
+            wrap.innerHTML = TOOLBOX_PARAM_HTML[sel.value] || '';
+            document.querySelectorAll('#toolbox-params [data-i18n]').forEach(el => {
+                el.textContent = translate(el.getAttribute('data-i18n'));
+            });
+        };
+
+        const openToolbox = async () => {
+            document.getElementById('toolboxModal').classList.add('active');
+            toolboxSelected.clear();
+            const search = document.getElementById('toolbox-doc-search');
+            if (search) {
+                search.value = '';
+                search.oninput = () => renderToolboxDocs(search.value);
+            }
+            const resultBox = document.getElementById('toolbox-result');
+            if (resultBox) resultBox.innerHTML = '';
+            try {
+                const res = await fetch('/api/library/documents');
+                toolboxDocs = await res.json();
+            } catch (e) {
+                toolboxDocs = [];
+            }
+            renderToolboxDocs('');
+            window.onToolboxToolChange();
+        };
+
+        window.runToolboxTool = async () => {
+            const tool = (document.getElementById('toolbox-tool-select') || {}).value;
+            const books = Array.from(toolboxSelected);
+            const resultBox = document.getElementById('toolbox-result');
+            const btn = document.getElementById('toolboxRunBtn');
+            if (!tool || books.length === 0) {
+                if (resultBox) resultBox.textContent = translate('toolbox.pick_at_least_one') || '请至少选择一篇文献';
+                return;
+            }
+            const dpi = (document.getElementById('tb-dpi') || {}).value || '300';
+            const angle = (document.getElementById('tb-angle') || {}).value || '90';
+            const range = (document.getElementById('tb-range') || {}).value || '1-5';
+            const text = (document.getElementById('tb-text') || {}).value || '';
+            const password = (document.getElementById('tb-password') || {}).value || '';
+            const rangeMatch = String(range).match(/(\d+)\s*-\s*(\d+)/);
+
+            if (btn) { btn.disabled = true; btn.dataset.orig = btn.innerText; btn.innerText = translate('toolbox.running') || '执行中...'; }
+            if (resultBox) resultBox.innerHTML = '';
+
+            try {
+                if (tool === 'merge') {
+                    if (books.length < 2) {
+                        if (resultBox) resultBox.textContent = translate('toolbox.merge_need_two') || '合并至少需要选择两篇文献';
+                        return;
+                    }
+                    const res = await fetch('/api/tools/merge', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ book_names: books }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+                    if (resultBox) resultBox.innerHTML = `<a href="${data.download}" target="_blank">${translate('toolbox.download') || '下载合并结果'}</a>`;
+                    return;
+                }
+
+                const links = [];
+                for (const book of books) {
+                    const q = new URLSearchParams({ book_name: book });
+                    let url = '';
+                    if (tool === 'images') { q.set('dpi', dpi); url = '/api/tools/export/images'; }
+                    else if (tool === 'figures') { q.set('dpi', dpi); url = '/api/tools/export/figures'; }
+                    else if (tool === 'docx') { url = '/api/tools/export/docx'; }
+                    else if (tool === 'md') { q.set('fmt', 'md'); url = '/api/tools/export/text'; }
+                    else if (tool === 'tex') { q.set('fmt', 'tex'); url = '/api/tools/export/text'; }
+                    else if (tool === 'ocr') { url = '/api/tools/ocr'; }
+                    else if (tool === 'compress') { url = '/api/tools/compress'; }
+                    else if (tool === 'rotate') { q.set('angle', angle); url = '/api/tools/rotate'; }
+                    else if (tool === 'split') { q.set('start', rangeMatch ? rangeMatch[1] : '1'); if (rangeMatch) q.set('end', rangeMatch[2]); url = '/api/tools/split'; }
+                    else if (tool === 'watermark') { q.set('text', text || 'Paperfect'); url = '/api/tools/watermark'; }
+                    else if (tool === 'protect') { q.set('password', password); url = '/api/tools/protect'; }
+                    else if (tool === 'unlock') { q.set('password', password); url = '/api/tools/unlock'; }
+                    if (!url) continue;
+
+                    try {
+                        const res = await fetch(`${url}?${q.toString()}`, { method: 'POST' });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+                        links.push({ book, href: data.download });
+                    } catch (e) {
+                        links.push({ book, error: e.message || String(e) });
+                    }
+                }
+                if (resultBox) {
+                    resultBox.innerHTML = links.map(l => l.href
+                        ? `<div><a href="${l.href}" target="_blank">${l.book}</a></div>`
+                        : `<div style="color:#f87171;">${l.book}: ${l.error}</div>`
+                    ).join('');
+                }
+            } catch (e) {
+                if (resultBox) resultBox.textContent = e.message || String(e);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = btn.dataset.orig || (translate('toolbox.run') || '执行'); }
+            }
+        };
+
         const saveSettings = async () => {
             const btn = document.querySelector('#settingsSaveBtn');
             const originalText = btn ? btn.innerText : "";
@@ -1608,7 +1760,7 @@ const app = createApp({
         // Expose saveSettings and addParseKeyInput globally so they can be called from onclick attributes in inline HTML
         window.saveSettings = saveSettings;
 
-        return { currentTheme, changeTheme, toggleDarkLight, isLightTheme, currentMainTab, switchMainTab, lang, switchLang, t: translate, openSettings, closeSettings, saveSettings };
+        return { currentTheme, changeTheme, toggleDarkLight, isLightTheme, currentMainTab, switchMainTab, lang, switchLang, t: translate, openSettings, closeSettings, saveSettings, openToolbox };
     }
 });
 

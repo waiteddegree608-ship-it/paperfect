@@ -10,6 +10,7 @@ sqlalchemy
 pdf2docx
 rapidocr
 onnxruntime
+pikepdf
 python-dotenv
 Jinja2
 aiofiles

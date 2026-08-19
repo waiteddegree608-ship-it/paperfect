@@ -372,6 +372,152 @@ def ocr_pdf(pdf_path: str, out_path: str, lang: str = "eng") -> str:
     raise RuntimeError("OCR 失败：" + " | ".join(errors))
 
 
+def rotate_pdf(pdf_path: str, out_path: str, angle: int = 90, pages: Optional[List[int]] = None) -> str:
+    """Rotate PDF pages via pikepdf (https://github.com/pikepdf/pikepdf, wraps qpdf)."""
+    import pikepdf
+
+    angle = int(angle or 90) % 360
+    if angle % 90 != 0:
+        angle = 90
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with pikepdf.open(pdf_path) as pdf:
+        indices = pages if pages else range(len(pdf.pages))
+        for i in indices:
+            if 0 <= i < len(pdf.pages):
+                pdf.pages[i].rotate(angle, relative=True)
+        pdf.save(out_path)
+    return out_path
+
+
+def split_pdf(pdf_path: str, out_path: str, start: int = 1, end: Optional[int] = None) -> str:
+    """Extract an inclusive 1-based page range into a new PDF via pikepdf."""
+    import pikepdf
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with pikepdf.open(pdf_path) as pdf:
+        n = len(pdf.pages)
+        s = max(1, int(start or 1))
+        e = min(n, int(end or n))
+        if s > e:
+            raise ValueError("起始页不能大于结束页")
+        new_pdf = pikepdf.new()
+        try:
+            for i in range(s - 1, e):
+                new_pdf.pages.append(pdf.pages[i])
+            new_pdf.save(out_path)
+        finally:
+            new_pdf.close()
+    return out_path
+
+
+def merge_pdfs(pdf_paths: List[str], out_path: str) -> str:
+    """Merge multiple PDFs in order via pikepdf."""
+    import pikepdf
+
+    if len(pdf_paths) < 2:
+        raise ValueError("合并需要至少两个 PDF")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    new_pdf = pikepdf.new()
+    opened = []
+    try:
+        for p in pdf_paths:
+            src = pikepdf.open(p)
+            opened.append(src)
+            new_pdf.pages.extend(src.pages)
+        new_pdf.save(out_path)
+    finally:
+        new_pdf.close()
+        for src in opened:
+            src.close()
+    return out_path
+
+
+def compress_pdf(pdf_path: str, out_path: str) -> str:
+    """Losslessly optimize PDF stream/object storage via pikepdf/qpdf."""
+    import pikepdf
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with pikepdf.open(pdf_path) as pdf:
+        try:
+            pdf.remove_unreferenced_resources()
+        except Exception:
+            pass
+        pdf.save(
+            out_path,
+            compress_streams=True,
+            recompress_flate=True,
+            object_stream_mode=pikepdf.ObjectStreamMode.generate,
+            linearize=True,
+        )
+    before = os.path.getsize(pdf_path)
+    after = os.path.getsize(out_path)
+    print(f"[Compress] {before / 1024:.0f}KB -> {after / 1024:.0f}KB ({pdf_path})")
+    return out_path
+
+
+def watermark_pdf(pdf_path: str, out_path: str, text: str, opacity: float = 0.15) -> str:
+    """Stamp a tiled diagonal text watermark on every page via PyMuPDF."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("水印文字不能为空")
+    opacity = max(0.03, min(float(opacity or 0.15), 1.0))
+    doc = fitz.open(pdf_path)
+    try:
+        for page in doc:
+            rect = page.rect
+            fontsize = max(18, min(rect.width, rect.height) / 9)
+            shape = page.new_shape()
+            step_x, step_y = rect.width / 2.2, rect.height / 4.5
+            gy = 0
+            y = 40.0
+            while y < rect.height:
+                gx = 0
+                x = 10.0
+                while x < rect.width:
+                    pos = fitz.Point(x, y)
+                    shape.insert_text(
+                        pos, text, fontsize=fontsize,
+                        morph=(pos, fitz.Matrix(45)),
+                        color=(0.5, 0.5, 0.5), fill_opacity=opacity,
+                    )
+                    x += step_x
+                    gx += 1
+                y += step_y
+                gy += 1
+            shape.commit()
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        doc.save(out_path, incremental=False, deflate=True)
+    finally:
+        doc.close()
+    return out_path
+
+
+def protect_pdf(pdf_path: str, out_path: str, password: str, owner_password: Optional[str] = None) -> str:
+    """Encrypt a PDF with an open password via pikepdf."""
+    import pikepdf
+
+    password = (password or "").strip()
+    if not password:
+        raise ValueError("密码不能为空")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with pikepdf.open(pdf_path) as pdf:
+        pdf.save(
+            out_path,
+            encryption=pikepdf.Encryption(user=password, owner=owner_password or password, R=6),
+        )
+    return out_path
+
+
+def unlock_pdf(pdf_path: str, out_path: str, password: str = "") -> str:
+    """Remove password protection from a PDF via pikepdf."""
+    import pikepdf
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with pikepdf.open(pdf_path, password=password or "") as pdf:
+        pdf.save(out_path)
+    return out_path
+
+
 def add_text_markup(
     pdf_path: str,
     out_path: str,
