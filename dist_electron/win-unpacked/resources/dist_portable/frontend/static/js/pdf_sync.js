@@ -65,20 +65,32 @@ class PdfScrollSyncManager {
                                     this.syncScroll(id);
                                 }
 
-                                // Sync PPT slide page
+                                // Sync PPT slide to this PDF page
+                                // page_mapping: { slideIndex: pdfPage }
+                                // Multiple slides may share one PDF page (multi-figure page + 补充说明).
                                 try {
                                     const pageNum = innerWin.PDFViewerApplication.page;
                                     if (pageNum && window.pptPageMapping) {
-                                        const slideIndex = Object.keys(window.pptPageMapping).find(
-                                            key => window.pptPageMapping[key] === pageNum
-                                        );
-                                        if (slideIndex !== undefined) {
-                                            const pptIframe = document.querySelector('#pane-ppt iframe');
-                                            if (pptIframe && pptIframe.contentWindow) {
-                                                pptIframe.contentWindow.postMessage({
-                                                    type: 'SELECT_SLIDE_BY_INDEX',
-                                                    index: parseInt(slideIndex, 10)
-                                                }, '*');
+                                        const matches = Object.keys(window.pptPageMapping)
+                                            .filter(key => Number(window.pptPageMapping[key]) === Number(pageNum))
+                                            .map(key => parseInt(key, 10))
+                                            .filter(n => !Number.isNaN(n))
+                                            .sort((a, b) => a - b);
+                                        if (matches.length) {
+                                            const cur = (typeof window.pptCurrentSlideIndex === 'number')
+                                                ? window.pptCurrentSlideIndex : -1;
+                                            // Stay on current slide if it already belongs to this PDF page
+                                            // (e.g. 2nd figure on same page, or 补充说明 of current figure)
+                                            const slideIndex = matches.includes(cur) ? cur : matches[0];
+                                            if (slideIndex !== cur) {
+                                                const pptIframe = document.querySelector('#pane-ppt iframe');
+                                                if (pptIframe && pptIframe.contentWindow) {
+                                                    pptIframe.contentWindow.postMessage({
+                                                        type: 'SELECT_SLIDE_BY_INDEX',
+                                                        index: slideIndex
+                                                    }, '*');
+                                                }
+                                                window.pptCurrentSlideIndex = slideIndex;
                                             }
                                         }
                                     }

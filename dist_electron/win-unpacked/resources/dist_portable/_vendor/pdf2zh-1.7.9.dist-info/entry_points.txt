@@ -1,2 +1,0 @@
-[console_scripts]
-pdf2zh = pdf2zh.pdf2zh:main

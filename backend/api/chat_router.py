@@ -152,18 +152,22 @@ Only output the final translation. Do not include any explanation or markup."""
         ]
         
         cfg = load_config()
-        
+        from backend.services.model_pick import pick_fast_text_model, extra_body_for_model
         api_url = cfg.get("translate_api_url") or cfg.get("chat_api_url")
         api_key = cfg.get("translate_api_key") or cfg.get("chat_api_key")
-        model = cfg.get("translate_model") or cfg.get("chat_model") or "Qwen/Qwen2.5-72B-Instruct"
+        if isinstance(api_key, list):
+            api_key = api_key[0] if api_key else ""
+        model = pick_fast_text_model(cfg)
 
-        chat_client = OpenAI(api_key=api_key, base_url=api_url)
-        
+        # Short snippets: skip Google (often blocked); small SiliconFlow model is faster.
+        extra = extra_body_for_model(model)
+        chat_client = OpenAI(api_key=api_key, base_url=api_url, timeout=45.0)
         response = chat_client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=2048,
-            temperature=0.3
+            max_tokens=512,
+            temperature=0.2,
+            **({"extra_body": extra} if extra else {}),
         )
         return {"translation": response.choices[0].message.content}
     except Exception as e:

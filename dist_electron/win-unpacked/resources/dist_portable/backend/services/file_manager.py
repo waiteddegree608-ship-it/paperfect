@@ -1,9 +1,74 @@
 import os
+import re
+import hashlib
 import shutil
 from backend.core.config import get_base_dir
 
 active_tasks = set()
 active_tasks_progress = {}
+
+# Windows path budget: data/papers/{name}/pptx/{name}_Full_Presentation.pptx must fit
+# under ~260 chars (classic MAX_PATH) even when installed under a deep path.
+_MAX_BOOK_NAME_LEN = 72
+_WIN_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def sanitize_book_name(raw: str, max_len: int = _MAX_BOOK_NAME_LEN) -> str:
+    """
+    Make a filesystem-safe folder / file stem from a PDF title.
+    Long arXiv-style names otherwise blow MAX_PATH and make import fail on Windows.
+    """
+    name = (raw or "untitled").strip()
+    # Drop directory components / nulls
+    name = os.path.basename(name.replace("\\", "/")).replace("\x00", "")
+    # Normalize fancy punctuation that breaks paths or looks like separators
+    for a, b in (
+        ("\u2013", "-"),
+        ("\u2014", "-"),
+        ("\u2212", "-"),
+        ("\u00a0", " "),
+        ("\u2026", "..."),
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+    ):
+        name = name.replace(a, b)
+    # Illegal on Windows
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    if not name:
+        name = "untitled"
+    if name.upper() in _WIN_RESERVED:
+        name = f"paper_{name}"
+    if len(name) > max_len:
+        # Stable short form: head + hash of full original (uniqueness)
+        digest = hashlib.md5(name.encode("utf-8", errors="ignore")).hexdigest()[:8]
+        keep = max(16, max_len - 9)
+        name = name[:keep].rstrip(" .-_") + "_" + digest
+    return name
+
+
+def ensure_unique_book_name(book_name: str, item_type: str) -> str:
+    """Avoid clobbering an existing paper folder with the same short name."""
+    base = get_base_dir()
+    root = os.path.join(base, "data", "textbooks" if item_type == "book" else "papers")
+    candidate = book_name
+    n = 2
+    while os.path.isdir(os.path.join(root, candidate)):
+        # Only collide when folder already exists
+        suffix = f"_{n}"
+        stem = book_name[: max(8, _MAX_BOOK_NAME_LEN - len(suffix))].rstrip(" .-_")
+        candidate = f"{stem}{suffix}"
+        n += 1
+        if n > 99:
+            candidate = f"{book_name[:40]}_{hashlib.md5(os.urandom(8)).hexdigest()[:6]}"
+            break
+    return candidate
 
 def scan_items(item_type="book"):
     items = []
@@ -31,7 +96,8 @@ def scan_items(item_type="book"):
                         progress = progress_info.get("stage", "抽取中")
                         percent = progress_info.get("percent", 50)
                 else:
-                    if os.path.exists(pptx_path):
+                    pptx_ok = os.path.exists(pptx_path) and os.path.getsize(pptx_path) >= 8000
+                    if pptx_ok:
                         status = "ready"
                         progress = "100%"
                         percent = 100
@@ -76,7 +142,8 @@ def get_item_by_name(name):
                     progress = progress_info.get("stage", "抽取中")
                     percent = progress_info.get("percent", 50)
             else:
-                if os.path.exists(pptx_path):
+                pptx_ok = os.path.exists(pptx_path) and os.path.getsize(pptx_path) >= 8000
+                if pptx_ok:
                     status = "ready"
                     progress = "100%"
                     percent = 100
@@ -119,19 +186,75 @@ def delete_target_item(name: str, type: str):
     return {"status": "success"}
 
 async def handle_upload_file(file, item_type):
-    filename = os.path.basename(file.filename) if file.filename else "unknown.pdf"
-    name_part, ext_part = os.path.splitext(filename)
-    book_name = name_part.strip()
-    if book_name.endswith(".pdf"):
-        book_name = book_name[:-4]
-    filename = book_name + ext_part.lower()
+    """
+    Save upload under data/{papers|textbooks}/{safe_name}/raw/{safe_name}.pdf
+    Returns (book_name, pdf_path, display_title) where display_title keeps the
+    human-readable original stem (may be long); book_name is path-safe.
+    """
+    raw_filename = os.path.basename(file.filename) if file.filename else "unknown.pdf"
+    name_part, ext_part = os.path.splitext(raw_filename)
+    display_title = name_part.strip() or "untitled"
+    if display_title.lower().endswith(".pdf"):
+        display_title = display_title[:-4]
 
-    target_dir = os.path.join(get_base_dir(), "data", "textbooks" if item_type == "book" else "papers", book_name, "raw")
-    os.makedirs(target_dir, exist_ok=True)
-    
+    book_name = sanitize_book_name(display_title)
+    book_name = ensure_unique_book_name(book_name, item_type)
+    # Always use .pdf stem matching folder name (downstream assumes this)
+    filename = f"{book_name}.pdf"
+
+    target_dir = os.path.join(
+        get_base_dir(),
+        "data",
+        "textbooks" if item_type == "book" else "papers",
+        book_name,
+        "raw",
+    )
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(
+            f"无法创建论文目录（文件名可能过长或含非法字符）。已尝试: {book_name!r}. 原始错误: {e}"
+        ) from e
+
     pdf_path = os.path.join(target_dir, filename)
+    # Guard: refuse if still over conservative path budget
+    if len(os.path.abspath(pdf_path)) > 240:
+        # Emergency shorter name
+        short = sanitize_book_name(display_title, max_len=40)
+        short = ensure_unique_book_name(short, item_type)
+        book_name = short
+        filename = f"{book_name}.pdf"
+        target_dir = os.path.join(
+            get_base_dir(),
+            "data",
+            "textbooks" if item_type == "book" else "papers",
+            book_name,
+            "raw",
+        )
+        os.makedirs(target_dir, exist_ok=True)
+        pdf_path = os.path.join(target_dir, filename)
+
     content = await file.read()
-    with open(pdf_path, "wb") as buffer:
-        buffer.write(content)
-        
-    return book_name, pdf_path
+    try:
+        with open(pdf_path, "wb") as buffer:
+            buffer.write(content)
+    except OSError as e:
+        raise RuntimeError(
+            f"无法写入 PDF（路径过长或磁盘权限问题）: {pdf_path} — {e}"
+        ) from e
+
+    # Persist original title for UI (optional sidecar)
+    try:
+        meta_path = os.path.join(os.path.dirname(target_dir), "upload_meta.json")
+        import json
+        with open(meta_path, "w", encoding="utf-8") as mf:
+            json.dump(
+                {"display_title": display_title, "original_filename": raw_filename, "book_name": book_name},
+                mf,
+                ensure_ascii=False,
+                indent=2,
+            )
+    except Exception:
+        pass
+
+    return book_name, pdf_path, display_title

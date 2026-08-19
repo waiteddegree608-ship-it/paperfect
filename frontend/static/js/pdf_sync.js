@@ -117,7 +117,7 @@ class PdfScrollSyncManager {
             //     clearInterval(this.initInterval);
             // }
 
-        }, 1000);
+        }, 2000);
     }
 
     /**

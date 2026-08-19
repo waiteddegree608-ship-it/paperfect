@@ -48,12 +48,12 @@ def load_config():
         return val
     
     cfg = {
-        "parse_api_url": clean_base_url(env_dict.get("PARSE_API_URL", "https://api.siliconflow.cn/v1")),
+        "parse_api_url": clean_base_url(env_dict.get("PARSE_API_URL", "https://opencode.ai/zen/go/v1")),
         "parse_api_key": [],
-        "parse_model": env_dict.get("PARSE_MODEL", "Qwen/Qwen2.5-72B-Instruct").strip().strip("'").strip('"'),
-        "chat_api_url": clean_base_url(env_dict.get("CHAT_API_URL", "https://api.siliconflow.cn/v1")),
+        "parse_model": env_dict.get("PARSE_MODEL", "qwen3.7-plus").strip().strip("'").strip('"'),
+        "chat_api_url": clean_base_url(env_dict.get("CHAT_API_URL", "https://opencode.ai/zen/go/v1")),
         "chat_api_key": clean_key(env_dict.get("CHAT_API_KEY", "")),
-        "chat_model": env_dict.get("CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct").strip().strip("'").strip('"'),
+        "chat_model": env_dict.get("CHAT_MODEL", "qwen3.7-plus").strip().strip("'").strip('"'),
         "paper_api_url": clean_base_url(env_dict.get("PAPER_API_URL", "")),
         "paper_api_key": clean_key(env_dict.get("PAPER_API_KEY", "")),
         "paper_model": env_dict.get("PAPER_MODEL", "").strip().strip("'").strip('"'),
@@ -62,7 +62,7 @@ def load_config():
         "annotator_model": env_dict.get("ANNOTATOR_MODEL", "").strip().strip("'").strip('"'),
         "translate_api_url": clean_base_url(env_dict.get("TRANSLATE_API_URL", "")),
         "translate_api_key": clean_key(env_dict.get("TRANSLATE_API_KEY", "")),
-        "translate_model": env_dict.get("TRANSLATE_MODEL", "").strip().strip("'").strip('"')
+        "translate_model": env_dict.get("TRANSLATE_MODEL", "qwen3.7-plus").strip().strip("'").strip('"')
     }
     
     # Process the comma-separated parse API keys list for backward compatibility with existing code

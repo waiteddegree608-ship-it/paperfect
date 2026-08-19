@@ -159,40 +159,105 @@ async def translate_pdf_async(input_pdf, output_pdf):
         
     print("[Block Translate] Translation finished. Reconstructing PDF layout...")
     
-    # Step 3: Redact the original pages and insert translated text
+    # Step 3: Cover original text and insert translated text
+    # NOTE: page.apply_redactions() can crash on pages with images in Lab / ICC /
+    # Separation / DeviceN colorspaces ("only Gray, RGB, and CMYK colorspaces supported").
+    # Prefer redaction that never rewrites images; fall back to white fill overlays.
     global font_file
     if not font_file:
         print("[Block Translate] Warning: No CJK font found on system, using default fonts.")
-        
+
+    def _apply_page_redactions(page):
+        """Remove/cover text under redaction annots without rewriting exotic images."""
+        # MuPDF redaction re-encodes overlapping images; Lab/ICC/Separation/etc. raise:
+        #   FzErrorArgument: only Gray, RGB, and CMYK colorspaces supported
+        # Skip image/graphics rewriting — we only need original text gone.
+        img_none = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
+        gfx_none = getattr(fitz, "PDF_REDACT_LINE_ART_NONE", 0)
+        kwargs_try = [
+            {"images": img_none, "graphics": gfx_none},
+            {"images": img_none},
+            {},
+        ]
+        last_err = None
+        for kw in kwargs_try:
+            try:
+                page.apply_redactions(**kw)
+                return True
+            except TypeError:
+                # Older pymupdf may not accept these kwargs
+                try:
+                    page.apply_redactions()
+                    return True
+                except Exception as e:
+                    last_err = e
+                    break
+            except Exception as e:
+                last_err = e
+                continue
+        if last_err:
+            print(f"[Block Translate] apply_redactions failed: {last_err}")
+        return False
+
+    def _cover_with_white(page, rects):
+        """Fallback when redaction is impossible: paint opaque white boxes over text."""
+        for r in rects:
+            try:
+                # shape under content can fail; use annotation-free draw on page
+                page.draw_rect(r, color=(1, 1, 1), fill=(1, 1, 1), width=0, overlay=True)
+            except Exception as e:
+                print(f"[Block Translate] white cover failed: {e}")
+
     for page_idx in range(len(doc)):
         page = doc[page_idx]
         page_blocks = [b for b in all_blocks if b['page_idx'] == page_idx]
-        
-        # Redact original text areas
-        for pb in page_blocks:
-            page.add_redact_annot(pb['rect'], fill=(1, 1, 1))
-            
-        page.apply_redactions()
-        
+        if not page_blocks:
+            continue
+
+        rects = [pb['rect'] for pb in page_blocks]
+
+        # Mark original text areas for redaction (white fill)
+        for r in rects:
+            try:
+                page.add_redact_annot(r, fill=(1, 1, 1))
+            except Exception as e:
+                print(f"[Block Translate] add_redact_annot failed on page {page_idx+1}: {e}")
+
+        ok = _apply_page_redactions(page)
+        if not ok:
+            # Clear any leftover redact annots then paint white covers
+            try:
+                for annot in list(page.annots() or []):
+                    if annot.type[0] == fitz.PDF_ANNOT_REDACT:
+                        page.delete_annot(annot)
+            except Exception:
+                pass
+            _cover_with_white(page, rects)
+
         # Write translated text boxes
         for pb in page_blocks:
             scaled_size = pb['avg_size'] * 0.95
             if scaled_size < 6.0:
                 scaled_size = 6.0
-                
+
             try:
                 page.insert_textbox(
                     pb['rect'], pb['translated_text'],
                     fontfile=font_file,
                     fontname="msyh" if font_file else "helv",
                     fontsize=scaled_size,
-                    color=pb['color']
+                    color=pb['color'],
                 )
             except Exception as e:
                 print(f"[Block Translate] Error inserting text on page {page_idx+1}: {e}")
-                
+
     # Step 4: Save final PDF
-    doc.save(output_pdf, garbage=4, deflate=True)
+    # garbage=4 can also choke on odd colorspaces in some builds — degrade gracefully
+    try:
+        doc.save(output_pdf, garbage=4, deflate=True)
+    except Exception as e:
+        print(f"[Block Translate] save(garbage=4) failed ({e}); retrying simple save...")
+        doc.save(output_pdf, deflate=True)
     doc.close()
     print(f"[Block Translate] Completed successfully! Saved to: {output_pdf}")
 

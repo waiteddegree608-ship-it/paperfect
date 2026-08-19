@@ -34,8 +34,8 @@ const imgDir = path.resolve(args[1]);
 const outputPath = path.resolve(args[2]);
 const MODE = args[3] || 'simple';
 const apiKey = args[4];
-const modelName = args[5] || 'Qwen/Qwen2.5-72B-Instruct';
-const customBaseURL = args[6] || 'https://api.siliconflow.cn/v1';
+const modelName = args[5] || 'qwen3.7-plus';
+const customBaseURL = args[6] || 'https://opencode.ai/zen/go/v1';
 const pptLang = args[7] || 'zh';
 const forceRefresh = args.includes('--force-refresh') || process.env.PPT_FORCE_REFRESH === '1';
 // Follow-up "补充说明" slides double deck length and break group-meeting flow
@@ -55,7 +55,8 @@ const isEn = pptLang === 'en';
 
 const client = new OpenAI({
     apiKey: apiKey,
-    baseURL: customBaseURL
+    baseURL: customBaseURL,
+    timeout: 90 * 1000,
 });
 
 const is_deepseek = modelName.toLowerCase().includes("deepseek") || customBaseURL.toLowerCase().includes("deepseek");
@@ -348,11 +349,63 @@ function packRailStack(items, minY, maxY, gap) {
     return sorted;
 }
 
+function isFallbackSlide(slideData) {
+    if (!slideData) return false;
+    if (slideData.fallback) return true;
+    const exp = String(slideData.overall_explanation || '');
+    if (exp.includes('自动标注失败') || exp.includes('auto labels failed')) return true;
+    const anns = slideData.annotations || [];
+    if (anns.length === 1) {
+        const lab = String(anns[0].label || '') + String(anns[0].description || '');
+        if (lab.includes('总览') && (lab.includes('兜底') || lab.includes('fallback') || lab.includes('Overview'))) return true;
+    }
+    return false;
+}
+
+function cacheUsable(entry) {
+    if (!entry || !Array.isArray(entry.annotations) || !entry.annotations.length) return false;
+    return !isFallbackSlide(entry);
+}
+
+function addFallbackFigureSlide(pres, slideData) {
+    const slide = pres.addSlide();
+    slide.background = { color: 'FFFFFF' };
+    const titleRaw = cleanText(slideData.slide_title || 'Figure');
+    const note = isEn
+        ? 'Labels pending — original figure kept. Click Resume to retry this slide.'
+        : '标注未完成，已保留原图。点「继续」可只重试失败页。';
+    slide.addText(titleRaw, {
+        x: 32 / PX, y: 10 / PX, w: (SLIDE_W - 64) / PX, h: 36 / PX,
+        fontSize: 18, bold: true, color: '0F172A', align: 'center',
+        fontFace: FONT, valign: 'middle', margin: 0, wrap: true
+    });
+    slide.addText(note, {
+        x: 40 / PX, y: 46 / PX, w: (SLIDE_W - 80) / PX, h: 28 / PX,
+        fontSize: 11, color: 'B45309', align: 'center',
+        fontFace: FONT, valign: 'middle', margin: 0, wrap: true
+    });
+    const nativeW = slideData.nativeW || slideData.imgW || 800;
+    const nativeH = slideData.nativeH || slideData.imgH || 500;
+    const boxX = 36, boxY = 84, boxW = SLIDE_W - 72, boxH = 600;
+    const fitted = fitImage(nativeW, nativeH, boxW, boxH);
+    const imgX = boxX + (boxW - fitted.w) / 2;
+    const imgY = boxY + (boxH - fitted.h) / 2;
+    if (slideData.base64Data) {
+        slide.addImage({
+            data: slideData.base64Data,
+            x: imgX / PX, y: imgY / PX, w: fitted.w / PX, h: fitted.h / PX
+        });
+    }
+}
+
 /**
  * Build one figure slide with side callouts (human presenter layout).
- * Text is always fitted to its box (no overflow).
  */
 function addCalloutFigureSlide(pres, slideData) {
+    if (isFallbackSlide(slideData)) {
+        addFallbackFigureSlide(pres, slideData);
+        return;
+    }
     const slide = pres.addSlide();
     slide.background = { color: 'FFFFFF' };
 
@@ -587,85 +640,114 @@ function addFollowUpSlide(pres, fu) {
     });
 }
 
+function truncateMd(md, maxChars) {
+    const s = String(md || '');
+    if (s.length <= maxChars) return s;
+    return s.slice(0, maxChars) + '\n\n[report truncated]';
+}
+
+async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let i = 0;
+    async function worker() {
+        while (i < items.length) {
+            const idx = i++;
+            out[idx] = await fn(items[idx], idx);
+        }
+    }
+    const n = Math.max(1, Math.min(limit, items.length));
+    await Promise.all(Array.from({ length: n }, worker));
+    return out;
+}
+
+function findPython() {
+    const candidates = [
+        path.resolve(__dirname, '..', '..', '..', 'venv', 'Scripts', 'python.exe'),
+        path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python'),
+        process.env.PYTHON,
+        process.platform === 'win32' ? 'python.exe' : 'python3',
+    ].filter(Boolean);
+    for (const c of candidates) {
+        try {
+            if (c.endsWith('python') || c.endsWith('python.exe') || c.endsWith('python3')) {
+                if (c.includes('venv') && !fs.existsSync(c)) continue;
+            }
+            return c;
+        } catch (_) {}
+    }
+    return 'python';
+}
+
+function jpegDataUrlForLlm(imgPath, maxEdge = 768) {
+    const py = findPython();
+    const script = path.join(__dirname, 'shrink_for_llm.py');
+    try {
+        const out = execFileSync(py, [script, imgPath, String(maxEdge), '65'], {
+            encoding: 'utf8',
+            timeout: 20000,
+            maxBuffer: 6 * 1024 * 1024,
+            windowsHide: true,
+        });
+        if (out && out.startsWith('data:image/jpeg;base64,')) return out.trim();
+    } catch (e) {
+        console.warn(`   ! JPEG shrink skipped (${e.message || e}); sending original`);
+    }
+    const imgBuffer = fs.readFileSync(imgPath);
+    return 'data:image/png;base64,' + imgBuffer.toString('base64');
+}
+
 async function processImage(imageName, mdContent) {
     console.log(`\n[Agent] -> Processing ${imageName}...`);
     const imgPath = path.join(imgDir, imageName);
     const imgBuffer = fs.readFileSync(imgPath);
-    const base64Data = 'data:image/png;base64,' + imgBuffer.toString('base64');
-
     const dimensions = sizeOf(imgBuffer);
     const nativeW = dimensions.width;
     const nativeH = dimensions.height;
     console.log(`   * Native dimensions: ${nativeW}x${nativeH}`);
+    const slideDataUrl = 'data:image/png;base64,' + imgBuffer.toString('base64');
+    const llmDataUrl = jpegDataUrlForLlm(imgPath, 1024);
+    const mdShort = String(mdContent || '').slice(0, 4000);
 
     const prompt = isEn ? `
-You are an expert academic presentation designer. Explain ONE figure for a group-meeting slide.
+You are a senior academic presenter. Study THIS paper figure and the report excerpt, then write a group-meeting slide.
 
-Context (analysis report):
+Report excerpt:
 <<<
-${mdContent}
+${mdShort}
 >>>
 
-Coordinate system on the image: X=0 left … 1 right; Y=0 top … 1 bottom.
+Coordinates: X=0 left … 1 right; Y=0 top … 1 bottom. targetX/targetY must sit at the visual center of that module in THIS image.
 
-Return ONLY JSON in a \`\`\`json block:
+Return ONLY json:
 {
-  "slide_title": "clear English title for a group meeting slide (<= 12 words)",
-  "overall_explanation": "One teaching takeaway for the whole figure (1–2 sentences, about 25–45 words)",
+  "slide_title": "<=18 words",
+  "overall_explanation": "80-140 words: what this figure argues and the key takeaway",
   "annotations": [
-    {
-      "label": "2-5 word module name",
-      "targetX": 0.22,
-      "targetY": 0.40,
-      "description": "Help a grad student understand this module: what it is, what happens here, and why it matters (2–3 sentences, about 35–55 words). Be specific to the figure, not generic."
-    }
+    {"label":"2-8 words","targetX":0.22,"targetY":0.40,"description":"40-90 words: what this module does, how it connects, and which claim it supports"}
   ],
   "follow_up_slides": []
 }
-
-Rules:
-- Output language: ENGLISH only.
-- Identify 3–4 logical modules / sub-figures / pipeline stages (prefer architecture blocks). Prefer 4 when the figure clearly has 4+ parts; otherwise 3. Quality over quantity.
-- targetX/targetY = **center of that module inside THIS cropped image** (0–1 relative to the image file you see, NOT the full PDF page).
-- For multi-panel figures (a)(b)(c)(d) or left/right halves: put each target on the **panel center**, not on surrounding whitespace or body text.
-- If the image is tall/narrow (single-column crop), still use 0–1 coords within the visible image; do not assume full-page layout.
-- Labels stay short; descriptions should be pedagogically useful (not telegraphic stubs).
-- Do NOT invent content not supported by the figure or report.
-- follow_up_slides: always [] (do not emit extra text-only slides; keep one slide per figure).
+Rules: English; 3-5 modules (2 if the figure is simple); descriptions must explain the mechanism, not telegrams; follow_up_slides=[].
 ` : `
-你是学术组会 PPT 设计师。请为论文中的【一张图】设计讲解卡片。
+你是资深学术汇报助手。请仔细观察这张论文配图，结合报告摘录，为组会讲解生成一张幻灯片标注。
 
-分析报告上下文：
+报告摘录：
 <<<
-${mdContent}
+${mdShort}
 >>>
 
-图像坐标系：X=0 左 … 1 右；Y=0 上 … 1 下。
+坐标系：X=0 左…1 右；Y=0 上…1 下。targetX/targetY 必须落在图中对应模块的视觉中心。
 
-只输出 \`\`\`json 代码块：
+只输出 json：
 {
-  "slide_title": "中文短标题（<=16字）",
-  "overall_explanation": "整张图的一句 takeaway（<=40字）",
+  "slide_title": "不超过18字的标题",
+  "overall_explanation": "80–140字：这张图在论证什么、关键结论是什么",
   "annotations": [
-    {
-      "label": "2-6字模块名",
-      "targetX": 0.22,
-      "targetY": 0.40,
-      "description": "该模块/子图在讲什么、为何重要（<=36字）"
-    }
+    {"label":"2-8字模块名","targetX":0.22,"targetY":0.40,"description":"40–90字：该模块在做什么、和相邻模块如何衔接、对应论文哪一结论"}
   ],
   "follow_up_slides": []
 }
-
-规则：
-- 输出语言：中文。
-- 识别 3–4 个逻辑模块（质量优先）；description 写 2–3 句、约 40–70 字，帮助理解“是什么/做什么/为何重要”。
-- targetX/targetY = **本裁剪图内**模块中心（相对本图 0–1，不是整页 PDF）。
-- 多子图 (a)(b)(c)(d) 或左右半栏：每个 target 落在对应**子图中心**，不要点在空白或正文上。
-- 半栏/窄图同样用 0–1 坐标，不要按整页版式假设。
-- label 可短；description 不要电报体空壳。
-- 不要编造图中/报告中没有的内容。
-- follow_up_slides：必须 []（不要额外补充说明页；一图一页即可）。
+规则：中文；3–5个模块（图简单则2个）；description 必须讲清机制，禁止电报体短句；follow_up_slides=[]。
 `;
 
     const maxRetries = 2;
@@ -683,29 +765,34 @@ ${mdContent}
                 messages = [{
                     role: 'user',
                     content: [
-                        { type: 'image_url', image_url: { url: base64Data } },
+                        { type: 'image_url', image_url: { url: llmDataUrl } },
                         { type: 'text', text: prompt }
                     ]
                 }];
             }
 
+            const thinkingOff = /thinking|reasoner|qwq|\br1\b/i.test(String(modelName || ''));
             const response = await client.chat.completions.create({
                 model: modelName,
                 messages,
-                temperature: 0.2
+                temperature: 0.2,
+                max_tokens: 2048,
+                ...(thinkingOff ? { extra_body: { enable_thinking: false } } : {}),
             });
 
-            const result = response.choices[0].message.content;
+            const result = response.choices[0].message.content || '';
             let parsed = null;
             const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
-            const rawBlob = jsonMatch ? jsonMatch[1] : (result.match(/\{\s*"slide_title"[\s\S]*\}/) || [])[0];
+            const titled = result.match(/\{\s*"slide_title"[\s\S]*\}/);
+            const generic = result.match(/\{[\s\S]*\}/);
+            const rawBlob = jsonMatch ? jsonMatch[1] : (titled ? titled[0] : (generic ? generic[0] : null));
             if (!rawBlob) throw new Error('Unable to parse JSON');
             parsed = safeParseModelJson(rawBlob);
 
             console.log(`   * Success! annotations=${(parsed.annotations || []).length}`);
             return {
                 imageName,
-                base64Data,
+                base64Data: slideDataUrl,
                 nativeW,
                 nativeH,
                 // legacy fields kept for cache compatibility
@@ -718,33 +805,25 @@ ${mdContent}
         } catch (e) {
             const errStr = String(e.message || e);
             const isRateLimit = errStr.includes('429') || errStr.includes('limit') || errStr.includes('quota');
-            const sleepTime = isRateLimit ? 35000 : 8000;
+            const sleepTime = isRateLimit ? 8000 : 1500;
             console.error(`   ! Error ${imageName} (Attempt ${attempt}/${maxRetries}):`, errStr);
-            if (attempt === maxRetries) {
-                console.error(`   ! Max retries reached for ${imageName} — using fallback slide (continue).`);
+            if (attempt === maxRetries || !isRateLimit) {
+                console.error(`   ! Giving up on ${imageName} — using fallback slide.`);
                 return {
                     imageName,
-                    base64Data,
+                    base64Data: slideDataUrl,
                     nativeW,
                     nativeH,
                     imgW: nativeW,
                     imgH: nativeH,
                     imgX: 0,
                     imgY: 0,
-                    slide_title: isEn ? cleanText(imageName) : cleanText(imageName),
+                    fallback: true,
+                    slide_title: cleanText(imageName),
                     overall_explanation: isEn
                         ? 'See the figure; auto labels failed for this panel.'
                         : '见图；该图自动标注失败，仅展示原图。',
-                    annotations: [
-                        {
-                            label: isEn ? 'Overview' : '总览',
-                            targetX: 0.5,
-                            targetY: 0.5,
-                            description: isEn
-                                ? 'Full figure overview (fallback).'
-                                : '整图总览（自动标注失败时的兜底）。'
-                        }
-                    ],
+                    annotations: [],
                     follow_up_slides: []
                 };
             }
@@ -815,7 +894,8 @@ async function run() {
     console.log(`   Force refresh LLM: ${forceRefresh}`);
     console.log(`   Follow-up slides: ${allowFollowups ? 'ON' : 'OFF (default)'}`);
     console.log(`   Max figures: ${maxFigures || 'unlimited'}`);
-    const mdContent = fs.readFileSync(mdPath, 'utf-8');
+    const mdRaw = fs.readFileSync(mdPath, 'utf-8');
+    const mdContent = truncateMd(mdRaw, 7000);
 
     let files = [];
     try {
@@ -840,11 +920,33 @@ async function run() {
         if (shortFigs.length > 0) files = shortFigs;
         console.log(`[Dedupe] Multiple figure naming schemes — preferring: ${files.join(', ')}`);
     }
+    // Skip figures that sit on references/appendix pages when BODY_END_PAGE is set
+    const bodyEnd = parseInt(process.env.BODY_END_PAGE || '0', 10) || 0;
+    let figPagesMeta = {};
+    try {
+        const metaPath = path.join(imgDir, 'figures_metadata.json');
+        if (fs.existsSync(metaPath)) {
+            figPagesMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (figPagesMeta && figPagesMeta.pages) figPagesMeta = figPagesMeta.pages;
+        }
+    } catch (_) {}
+    if (bodyEnd > 0) {
+        const before = files.length;
+        files = files.filter((f) => {
+            const p = figPagesMeta[f] || figPagesMeta[path.basename(f)];
+            return !p || Number(p) <= bodyEnd;
+        });
+        if (files.length !== before) {
+            console.log(`[Body] Dropped ${before - files.length} appendix/ref figures (body_end=${bodyEnd})`);
+        }
+    }
+
     if (maxFigures > 0 && files.length > maxFigures) {
         console.log(`[Cap] Limiting figures ${files.length} → ${maxFigures}`);
         files = files.slice(0, maxFigures);
     }
     console.log(`Found ${files.length} images: ${files.join(', ')}`);
+    console.log(`[PPT] model=${modelName} url=${customBaseURL}`);
 
     // Separate EN/ZH caches so experiment English decks don't reuse Chinese labels
     const cachePath = path.join(path.dirname(outputPath), isEn ? 'ppt_cache_en.json' : 'ppt_cache_zh.json');
@@ -863,32 +965,45 @@ async function run() {
     }
 
     const results = [];
-    for (const file of files) {
+    const concurrency = Math.max(1, parseInt(process.env.PPT_CONCURRENCY || '50', 10) || 50);
+    const progressFile = process.env.PAPERFECT_PROGRESS_FILE || '';
+    const writeProgress = (done, total) => {
+        if (!progressFile) return;
+        try {
+            fs.writeFileSync(progressFile, JSON.stringify({ done, total, label: `${done}/${total}` }));
+        } catch (_) {}
+    };
+    writeProgress(0, files.length || 1);
+    let pptDone = 0;
+    console.log(`[PPT] Processing ${files.length} figures with concurrency=${concurrency}`);
+    const processed = await mapLimit(files, concurrency, async (file) => {
         let res;
-        if (!forceRefresh && cache[file] && cache[file].annotations) {
+        if (!forceRefresh && cacheUsable(cache[file])) {
             console.log(`[Cache] -> Relayout only for ${file}`);
             res = hydrateFromCache(cache[file], file);
-        } else if (forceRefresh && cache[file] && cache[file].annotations && process.env.PPT_RELAYOUT_ONLY === '1') {
-            // Fast path: rebuild deck from cache without LLM
+        } else if (forceRefresh && cacheUsable(cache[file]) && process.env.PPT_RELAYOUT_ONLY === '1') {
             console.log(`[Cache] -> Relayout-only (PPT_RELAYOUT_ONLY) for ${file}`);
             res = hydrateFromCache(cache[file], file);
         } else {
             res = await processImage(file, mdContent);
-            if (res) {
+            if (res && cacheUsable(res)) {
                 cache[file] = res;
                 try {
                     fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
                 } catch (e) {
                     console.warn('Failed to save cache:', e.message);
                 }
+            } else if (cache[file] && isFallbackSlide(cache[file])) {
+                delete cache[file];
             }
-            await new Promise(r => setTimeout(r, 6000));
         }
-        if (res) {
-            // Strip follow-ups unless explicitly enabled
-            if (!allowFollowups) res.follow_up_slides = [];
-            results.push(res);
-        }
+        if (res && !allowFollowups) res.follow_up_slides = [];
+        pptDone += 1;
+        writeProgress(pptDone, files.length || 1);
+        return res;
+    });
+    for (const res of processed) {
+        if (res) results.push(res);
     }
 
     // Do NOT write a blank / empty PPTX when network failed for every figure.
@@ -905,17 +1020,25 @@ async function run() {
         console.warn('[WARN] No figure images found — writing title-only deck is skipped; abort.');
         process.exit(3);
     }
-    const fallbackOnly = results.every(
-        (r) => !r.annotations || r.annotations.length === 0 ||
-            (r.overall_explanation || '').includes('自动标注失败') ||
-            (r.overall_explanation || '').includes('auto labels failed')
-    );
-    if (fallbackOnly && results.length > 0) {
+    const fallbackSlides = results.filter(isFallbackSlide);
+    const okSlides = results.filter((r) => !isFallbackSlide(r));
+    const statusPath = path.join(path.dirname(outputPath), 'ppt_status.json');
+    try {
+        fs.writeFileSync(statusPath, JSON.stringify({
+            complete: fallbackSlides.length === 0,
+            ok_figures: okSlides.map((r) => r.imageName),
+            fallback_figures: fallbackSlides.map((r) => r.imageName),
+        }, null, 2), 'utf-8');
+    } catch (e) {
+        console.warn('Failed to write ppt_status.json', e.message);
+    }
+    if (fallbackSlides.length > 0) {
         console.warn(
-            `[WARN] All ${results.length} slides are fallback placeholders (API likely failed). ` +
-            `Still writing deck so images are visible; re-run after network recovery to fill labels from cache refresh.`
+            `[WARN] ${fallbackSlides.length}/${results.length} slides unlabeled (kept original figures). ` +
+            `PPT saved; exit 4 so the app shows Resume.`
         );
     }
+    const fallbackOnly = results.length > 0 && okSlides.length === 0;
 
     console.log('\n2. Building presentation with side-callout layout...');
     const pres = new pptxgen();
@@ -1019,6 +1142,12 @@ async function run() {
     }
 
     console.log('========================================');
+    if (fallbackSlides.length > 0) {
+        console.log(` PARTIAL — PPT saved with ${okSlides.length} labeled + ${fallbackSlides.length} unlabeled figures:`);
+        console.log(' ' + finalPath);
+        console.log('========================================');
+        process.exit(4);
+    }
     console.log(' SUCCESS — human-style PPT exported:');
     console.log(' ' + finalPath);
     console.log(` slides: ${results.length} figure slides`);

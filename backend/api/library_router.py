@@ -5,11 +5,13 @@ from pydantic import BaseModel
 import os
 import shutil
 import json
+import re
 
 from backend.models.database import SessionLocal, Folder, Document, Tag, DocumentRelation
 from backend.services.paper_analyzer import analyze_paper
 from backend.core.config import get_base_dir
 from backend.services.file_manager import active_tasks_progress
+from backend.services.task_runner import active_tasks, async_run_builder
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -73,6 +75,48 @@ def move_document(doc_id: int, req: MoveDocumentRequest, db: Session = Depends(g
     db.refresh(doc)
     return {"status": "success", "id": doc.id, "folder_id": doc.folder_id}
 
+
+def _cache_entry_is_fallback(entry) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("fallback"):
+        return True
+    exp = str(entry.get("overall_explanation") or "")
+    if "自动标注失败" in exp or "auto labels failed" in exp.lower():
+        return True
+    anns = entry.get("annotations") or []
+    if len(anns) == 1 and isinstance(anns[0], dict):
+        lab = str(anns[0].get("label") or "") + str(anns[0].get("description") or "")
+        if "兜底" in lab or "fallback" in lab.lower():
+            return True
+    return False
+
+
+def _ppt_labels_complete(target_dir, has_pptx: bool) -> bool:
+    """True only when the deck exists and figure labels are not fallback stubs."""
+    if not has_pptx or not target_dir:
+        return False
+    st = os.path.join(target_dir, "pptx", "ppt_status.json")
+    try:
+        if os.path.isfile(st):
+            with open(st, "r", encoding="utf-8") as f:
+                return bool((json.load(f) or {}).get("complete"))
+    except Exception:
+        pass
+    for name in ("ppt_cache_zh.json", "ppt_cache_en.json"):
+        fp = os.path.join(target_dir, "pptx", name)
+        if not os.path.isfile(fp):
+            continue
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                cache = json.load(f) or {}
+        except Exception:
+            continue
+        if any(_cache_entry_is_fallback(v) for v in cache.values()):
+            return False
+    return True
+
+
 def _doc_pipeline_status(book_name: str):
     """
     Derive UI status from disk artifacts + in-memory active_tasks.
@@ -111,10 +155,36 @@ def _doc_pipeline_status(book_name: str):
     has_translated = _ok(translated, 1024)
     has_kb = _ok(kb, 200)
     has_raw = _ok(raw_pdf, 64)
+    ppt_complete = _ppt_labels_complete(target_dir, has_pptx)
     # Viewable as soon as raw PDF exists (chat page); richer tabs need annotated/etc.
     can_open = has_raw or has_annotated or has_kb
 
-    if has_pptx and not in_flight:
+    flags = {}
+    try:
+        fp = os.path.join(target_dir or "", "pipeline.json")
+        if target_dir and os.path.isfile(fp):
+            with open(fp, "r", encoding="utf-8") as f:
+                flags = json.load(f) or {}
+    except Exception:
+        flags = {}
+    need_ppt = flags.get("do_ppt", True)
+    need_ann = flags.get("do_annotate", True)
+    need_tr = flags.get("do_translate", True)
+    need_parse = flags.get("do_parse", True)
+    if not any([need_ppt, need_ann, need_tr, need_parse]):
+        requested_done = has_raw
+    else:
+        requested_done = True
+        if need_ppt and not ppt_complete:
+            requested_done = False
+        if need_ann and not has_annotated:
+            requested_done = False
+        if need_tr and not has_translated:
+            requested_done = False
+        if need_parse and not has_kb:
+            requested_done = False
+
+    if requested_done and not in_flight:
         return {
             "status": "ready",
             "progress": "",
@@ -145,18 +215,23 @@ def _doc_pipeline_status(book_name: str):
 
     # Not in active_tasks: decide ready vs interrupted from disk
     if is_paper:
-        if has_pptx or (has_annotated and has_kb):
-            status = "ready"
-            percent = 100 if has_pptx else 95
-            progress = "" if has_pptx else "PPT 待生成/可先阅读"
+        if requested_done:
+            status, percent, progress = "ready", 100, ""
+        elif has_pptx and not ppt_complete:
+            status, percent, progress = "interrupted", 80, "PPT 部分完成，可继续"
         elif has_raw:
+            missing = []
+            if need_ann and not has_annotated:
+                missing.append("批注")
+            if need_tr and not has_translated:
+                missing.append("翻译")
+            if need_ppt and not ppt_complete:
+                missing.append("PPT")
             status = "interrupted"
-            percent = 30
-            progress = "解析未完成"
+            percent = 55 if has_kb else 30
+            progress = ("未完成：" + "、".join(missing)) if missing else "解析未完成"
         else:
-            status = "interrupted"
-            percent = 0
-            progress = "文件缺失"
+            status, percent, progress = "interrupted", 0, "文件缺失"
     else:
         if has_kb:
             status, percent, progress = "ready", 100, ""
@@ -207,6 +282,9 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
             "core_type": d.core_type,
             "research_field": d.research_field,
             "research_direction": d.research_direction,
+            "authors": d.authors,
+            "year": d.year,
+            "doi": d.doi,
             "abstract": d.abstract,
             "en_abstract": d.en_abstract,
             "en_keywords": d.en_keywords,
@@ -224,13 +302,11 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
     return result
 
 from backend.services.file_manager import handle_upload_file as old_handle_upload_file
-from backend.services.task_runner import active_tasks, async_run_builder
 
 @router.post("/documents/{doc_id}/retag")
 def retag_document(doc_id: int, db: Session = Depends(get_db)):
     """Re-run metadata/abstract/tag analysis for a library document (no full pipeline)."""
-    import json as _json
-    from backend.services.paper_analyzer import analyze_paper
+    from backend.services.paper_analyzer import analyze_paper, apply_analysis_to_document
 
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
@@ -239,36 +315,7 @@ def retag_document(doc_id: int, db: Session = Depends(get_db)):
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="PDF file missing on disk")
     analysis = analyze_paper(path)
-    en_title = analysis.get("en_title")
-    if en_title and en_title != "Unknown Title":
-        doc.title = en_title
-    if analysis.get("zh_title"):
-        doc.zh_title = analysis.get("zh_title")
-    doc.venue = analysis.get("venue") or doc.venue or "Unknown"
-    doc.paper_type = analysis.get("paper_type") or doc.paper_type or ""
-    doc.jcr_partition = analysis.get("jcr_partition") or ""
-    doc.ccf_partition = analysis.get("ccf_partition") or ""
-    doc.core_type = analysis.get("core_type") or ""
-    f_val = analysis.get("research_field", "")
-    doc.research_field = _json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val or "")
-    d_val = analysis.get("research_direction", "")
-    doc.research_direction = _json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val or "")
-    if analysis.get("abstract"):
-        doc.abstract = analysis.get("abstract")
-    if analysis.get("en_abstract"):
-        doc.en_abstract = analysis.get("en_abstract")
-    doc.en_keywords = _json.dumps(analysis.get("en_keywords", []), ensure_ascii=False)
-    for kw in analysis.get("zh_keywords", []) or []:
-        kw = (kw or "").strip()
-        if not kw:
-            continue
-        tag = db.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
-        if not tag:
-            tag = Tag(name=kw, category="Keywords")
-            db.add(tag)
-        if tag not in doc.tags:
-            doc.tags.append(tag)
-    db.commit()
+    apply_analysis_to_document(db, doc, analysis)
     db.refresh(doc)
     return {
         "status": "success",
@@ -276,8 +323,19 @@ def retag_document(doc_id: int, db: Session = Depends(get_db)):
         "title": doc.title,
         "zh_title": doc.zh_title,
         "paper_type": doc.paper_type,
-        "tags": [t.name for t in doc.tags],
+        "abstract": doc.abstract,
+        "en_abstract": doc.en_abstract,
+        "venue": doc.venue,
+        "tags": [{"id": t.id, "name": t.name, "category": t.category} for t in doc.tags],
     }
+
+def _form_bool(val, default=True):
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
 
 @router.post("/upload")
 async def upload_document(
@@ -289,6 +347,9 @@ async def upload_document(
     prompt_type: str = Form("提示词汇总"),
     ppt_mode: str = Form("creative"),
     ppt_lang: str = Form("zh"),
+    do_translate: str = Form("true"),
+    do_annotate: str = Form("true"),
+    do_ppt: str = Form("true"),
     db: Session = Depends(get_db)
 ):
     # Determine folder
@@ -333,7 +394,18 @@ async def upload_document(
     if task_id not in active_tasks:
         active_tasks.add(task_id)
         if item_type == "paper":
-            background_tasks.add_task(async_run_builder, pdf_path, book_name, "paper", prompt_type, ppt_mode, ppt_lang)
+            background_tasks.add_task(
+                async_run_builder,
+                pdf_path,
+                book_name,
+                "paper",
+                prompt_type,
+                ppt_mode,
+                ppt_lang,
+                _form_bool(do_translate, True),
+                _form_bool(do_annotate, True),
+                _form_bool(do_ppt, True),
+            )
         else:
             background_tasks.add_task(async_run_builder, pdf_path, book_name, "book")
             
@@ -344,37 +416,17 @@ async def upload_document(
     def auto_tag(doc_id, path):
         db_local = SLocal()
         try:
+            from backend.services.paper_analyzer import apply_analysis_to_document
             analysis = analyze_paper(path)
             doc_to_update = db_local.query(Document).filter(Document.id == doc_id).first()
             if doc_to_update:
-                en_title = analysis.get("en_title")
-                if en_title and en_title != "Unknown Title":
-                    doc_to_update.title = en_title
-                doc_to_update.zh_title = analysis.get("zh_title", "")
-                doc_to_update.venue = analysis.get("venue", "Unknown")
-                doc_to_update.paper_type = analysis.get("paper_type", "")
-                doc_to_update.jcr_partition = analysis.get("jcr_partition", "")
-                doc_to_update.ccf_partition = analysis.get("ccf_partition", "")
-                doc_to_update.core_type = analysis.get("core_type", "")
-                f_val = analysis.get("research_field", "")
-                doc_to_update.research_field = json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val)
-                d_val = analysis.get("research_direction", "")
-                doc_to_update.research_direction = json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val)
-                doc_to_update.abstract = analysis.get("abstract", "")
-                doc_to_update.en_abstract = analysis.get("en_abstract", "")
-                doc_to_update.en_keywords = json.dumps(analysis.get("en_keywords", []), ensure_ascii=False)
-                
-                for kw in analysis.get("zh_keywords", []):
-                    kw = kw.strip()
-                    if not kw: continue
-                    tag = db_local.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
-                    if not tag:
-                        tag = Tag(name=kw, category="Keywords")
-                        db_local.add(tag)
-                    doc_to_update.tags.append(tag)
-                db_local.commit()
+                apply_analysis_to_document(db_local, doc_to_update, analysis)
+                print(f"[Auto tag] saved metadata for doc {doc_id}", flush=True)
         except Exception as e:
-            print("Auto tag error:", e)
+            import traceback
+            print("Auto tag error:", e, flush=True)
+            traceback.print_exc()
+            db_local.rollback()
         finally:
             db_local.close()
             
@@ -402,19 +454,55 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
 
 @router.get("/graph")
 def get_knowledge_graph(db: Session = Depends(get_db)):
-    # Build a simple graph of documents and tags
+    """Paper-to-paper graph from stored relations (legacy URL kept)."""
     nodes = []
     links = []
-    
     docs = db.query(Document).all()
     for d in docs:
-        nodes.append({"id": f"doc_{d.id}", "name": d.title, "category": 0, "symbolSize": 20})
-        for t in d.tags:
-            tag_id = f"tag_{t.id}"
-            if not any(n["id"] == tag_id for n in nodes):
-                nodes.append({"id": tag_id, "name": t.name, "category": 1, "symbolSize": 10})
-            links.append({"source": f"doc_{d.id}", "target": tag_id})
-    return {"nodes": nodes, "links": links, "categories": [{"name": "Document"}, {"name": "Keyword"}]}
+        nodes.append({"id": f"doc_{d.id}", "name": d.title, "category": 0, "docId": d.id})
+    seen = set()
+    rels = db.query(DocumentRelation).all()
+    for r in rels:
+        key = (min(r.source_doc_id, r.target_doc_id), max(r.source_doc_id, r.target_doc_id), r.relation_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        links.append({
+            "source": f"doc_{r.source_doc_id}",
+            "target": f"doc_{r.target_doc_id}",
+            "value": r.weight,
+            "type": r.relation_type,
+        })
+    return {"nodes": nodes, "links": links, "categories": [{"name": "Document"}]}
+
+
+@router.get("/documents/{doc_id}/figures/{filename}")
+def get_document_figure(doc_id: int, filename: str, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="bad filename")
+    if not re.match(r"(?i)^[A-Za-z0-9_.-]+\.(png|jpg|jpeg|webp)$", filename):
+        raise HTTPException(status_code=400, detail="bad filename")
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    book = (doc.original_filename or "").replace(".pdf", "")
+    from backend.core.config import get_base_dir
+    path = os.path.join(get_base_dir(), "data", "papers", book, "images", filename)
+    if not os.path.isfile(path):
+        path = os.path.join(get_base_dir(), "data", "textbooks", book, "images", filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Figure not found")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/documents/{doc_id}/lineage")
+def get_document_lineage(doc_id: int, db: Session = Depends(get_db)):
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    from backend.services.paper_lineage import build_lineage
+    return build_lineage(db, doc)
 
 from pydantic import BaseModel
 from openai import OpenAI
@@ -455,67 +543,102 @@ def extract_json(text: str):
 
 @router.post("/universal_search")
 def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db)):
-    # 1. Build a COMPACT catalog string (saves ~70% tokens vs JSON)
     docs = db.query(Document).all()
-    catalog_lines = []
-    doc_lookup = {}  # id -> doc for later
+    q = (req.message or "").strip()
+    q_low = q.lower()
+
+    def hay(d):
+        tags = " ".join(t.name for t in d.tags)
+        return " ".join([
+            d.title or "", d.zh_title or "", d.venue or "", d.abstract or "",
+            d.en_abstract or "", d.research_field or "", d.research_direction or "",
+            d.ccf_partition or "", d.paper_type or "", tags, d.authors or "",
+        ]).lower()
+
+    # Local structured prefilter (CCF / type / keywords) — never dump the whole library
+    scored = []
+    want_ccf = None
+    m = re.search(r"\bccf\s*[-:]?\s*([abc])\b", q_low)
+    if m:
+        want_ccf = m.group(1).upper()
+    want_review = bool(re.search(r"综述|survey|review", q_low))
+    want_research = bool(re.search(r"研究论文|research paper", q_low)) and not want_review
+    tokens = [t for t in re.split(r"[\s,;，。]+", q_low) if len(t) >= 2]
+    stop = {"我想", "找", "关于", "的", "论文", "文献", "please", "find", "papers", "about", "the", "ccf"}
+    tokens = [t for t in tokens if t not in stop]
+
     for d in docs:
-        doc_lookup[d.id] = d
-        tags = [t.name for t in d.tags if t.category == 'Keywords']
-        tags_str = ",".join(tags[:5]) if tags else ""
-        # Compact single-line format: ID | title | zh_title | venue | keywords | abstract_snippet
-        abstract_snip = (d.abstract or "")[:80].replace("\n", " ")
+        h = hay(d)
+        score = 0
+        if want_ccf and (d.ccf_partition or "").upper() == want_ccf:
+            score += 8
+        if want_review and (d.paper_type or "") == "综述":
+            score += 4
+        if want_research and (d.paper_type or "") == "研究":
+            score += 2
+        for t in tokens:
+            if t in h:
+                score += 2
+        if score > 0:
+            scored.append((score, d))
+    scored.sort(key=lambda x: -x[0])
+    candidates = [d for _, d in scored[:18]] if scored else docs[:18]
+
+    catalog_lines = []
+    doc_lookup = {d.id: d for d in docs}
+    for d in candidates:
+        tags = [t.name for t in d.tags if t.category == "Keywords"]
+        tags_str = ",".join(tags[:6]) if tags else ""
+        abstract_snip = (d.abstract or d.en_abstract or "")[:180].replace("\n", " ")
         line = f"[{d.id}] {d.title}"
         if d.zh_title:
             line += f" ({d.zh_title})"
         if d.venue and d.venue != "Unknown":
             line += f" @{d.venue}"
+        if d.ccf_partition:
+            line += f" CCF-{d.ccf_partition}"
+        if d.year:
+            line += f" {d.year}"
+        if d.paper_type:
+            line += f" #{d.paper_type}"
         if tags_str:
             line += f" #{tags_str}"
         if abstract_snip:
             line += f" | {abstract_snip}"
         catalog_lines.append(line)
-    
-    catalog_str = "\n".join(catalog_lines)
-    
-    if req.lang == 'en':
-        sys_prompt = f"""You are an academic literature recommendation assistant. Based on the user's query, recommend the most relevant documents from the knowledge base.
+    catalog_str = "\n".join(catalog_lines) if catalog_lines else "(empty library)"
 
-[Document Catalog]
+    if req.lang == "en":
+        sys_prompt = f"""You are an academic literature assistant. Recommend papers from THIS CANDIDATE LIST only.
+The user may specify venue rank (CCF A/B/C), paper type (survey vs research), field, fuzzy topic, or author.
+
+[Candidates]
 {catalog_str}
 
-[Tool Usage]
-To view a document's details, call search_paper_knowledge_base.
+Call search_paper_knowledge_base only if you need methods/conclusions beyond the catalog.
 
-[Output Format]
-After searching, output JSON:
-```json
-{{"reply": "Brief English recommendation (max 300 words)", "document_ids": [1, 2]}}
-```
-If nothing found, set document_ids to empty list."""
+Output JSON only:
+{{"reply": "recommendation in English, up to 800 words", "document_ids": [1, 2]}}
+document_ids must be integers from the candidate list. Empty list if nothing matches."""
     else:
-        sys_prompt = f"""你是学术文献推荐助理。根据用户需求，从知识库中推荐最相关的文献。
+        sys_prompt = f"""你是学术文献推荐助理。只能从下面的【候选文献】里推荐。
+用户可能用模糊描述、研究领域、CCF 分级（A/B/C）、综述/研究、作者等条件检索。
 
-【知识库文献列表】
+【候选文献】
 {catalog_str}
 
-【工具使用】
-如需查看某文献的详细内容，调用 search_paper_knowledge_base 工具。
+只有需要方法/结论细节时才调用 search_paper_knowledge_base。
 
-【输出格式】
-完成检索后，输出JSON：
-```json
-{{"reply": "中文推荐说明（简明扰要）", "document_ids": [1, 2]}}
-```
-找不到就 document_ids 设空列表。reply 务必简洁，不超过300字。"""
-    
+只输出 JSON：
+{{"reply": "中文推荐说明，可写到 800 字", "document_ids": [1, 2]}}
+document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
+
     messages = [{"role": "system", "content": sys_prompt}]
-    # Only keep last 4 turns of chat history to save context
-    recent_history = req.chat_history[-4:] if len(req.chat_history) > 4 else req.chat_history
+    recent_history = req.chat_history[-6:] if len(req.chat_history) > 6 else req.chat_history
     for hist in recent_history:
         messages.append({"role": hist["role"], "content": hist["content"]})
     messages.append({"role": "user", "content": req.message})
-    
+
     tools = [
         {
             "type": "function",
@@ -525,46 +648,59 @@ If nothing found, set document_ids to empty list."""
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "document_id": {
-                            "type": "integer",
-                            "description": "文献ID"
-                        },
-                        "query": {
-                            "type": "string",
-                            "description": "检索关键词"
-                        }
+                        "document_id": {"type": "integer", "description": "文献ID"},
+                        "query": {"type": "string", "description": "检索关键词"},
                     },
-                    "required": ["document_id", "query"]
-                }
-            }
+                    "required": ["document_id", "query"],
+                },
+            },
         }
     ]
-    
+
     cfg = load_config()
     client = OpenAI(api_key=cfg["chat_api_key"], base_url=cfg["chat_api_url"], timeout=300.0)
     model = cfg.get("chat_model", "Qwen/Qwen2.5-72B-Instruct")
-    
-    # Collect tool results across iterations for a summarized re-injection
     tool_results_summary = []
-    
-    # Loop for agentic behavior — max 3 iterations (reduced from 5)
+    fallback_ids = [d.id for d in candidates[:8]]
+
+    def pack_docs(doc_ids):
+        final_docs = []
+        if doc_ids and isinstance(doc_ids, list):
+            doc_ids = [int(i) for i in doc_ids if str(i).isdigit() or isinstance(i, int)]
+            if doc_ids:
+                found = db.query(Document).filter(Document.id.in_(doc_ids)).all()
+                order = {i: n for n, i in enumerate(doc_ids)}
+                found.sort(key=lambda x: order.get(x.id, 99))
+                for d in found:
+                    final_docs.append({
+                        "id": d.id,
+                        "title": d.title,
+                        "zh_title": d.zh_title,
+                        "original_filename": d.original_filename,
+                        "venue": d.venue,
+                        "paper_type": d.paper_type,
+                        "jcr_partition": d.jcr_partition,
+                        "ccf_partition": d.ccf_partition,
+                        "core_type": d.core_type,
+                        "research_field": d.research_field,
+                        "research_direction": d.research_direction,
+                        "abstract": d.abstract,
+                        "tags": [{"id": t.id, "name": t.name, "category": t.category} for t in d.tags],
+                    })
+        return final_docs
+
     for iteration in range(3):
         try:
-            # On the final possible iteration, drop tools to force a text response
             current_tools = tools if iteration < 2 else None
-            
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 tools=current_tools,
-                max_tokens=4096,
-                temperature=0.5
+                max_tokens=8192,
+                temperature=0.4,
             )
-            
             message = response.choices[0].message
-            
             if message.tool_calls:
-                # Process tool calls
                 assistant_msg = {
                     "role": "assistant",
                     "content": message.content or "",
@@ -572,133 +708,67 @@ If nothing found, set document_ids to empty list."""
                         {
                             "id": t.id,
                             "type": "function",
-                            "function": {
-                                "name": t.function.name,
-                                "arguments": t.function.arguments
-                            }
-                        } for t in message.tool_calls
-                    ]
+                            "function": {"name": t.function.name, "arguments": t.function.arguments},
+                        }
+                        for t in message.tool_calls
+                    ],
                 }
                 messages.append(assistant_msg)
-                
                 for tool_call in message.tool_calls:
                     if tool_call.function.name == "search_paper_knowledge_base":
                         try:
                             args = json.loads(tool_call.function.arguments)
                             doc_id = args.get("document_id")
                             query = args.get("query", "")
-                            
                             doc = db.query(Document).filter(Document.id == doc_id).first()
                             if doc:
-                                name_without_ext = doc.original_filename.replace('.pdf', '')
+                                name_without_ext = doc.original_filename.replace(".pdf", "")
                                 item_info = get_item_by_name(name_without_ext)
                                 if item_info and item_info["kb_path"]:
                                     rag_result = simple_rag_search(item_info["kb_path"], query)
-                                    # TRUNCATE tool result to prevent context overflow
-                                    tool_result = (rag_result[:800] + "...") if rag_result and len(rag_result) > 800 else (rag_result or "未找到相关信息。")
+                                    tool_result = (rag_result[:1600] + "...") if rag_result and len(rag_result) > 1600 else (rag_result or "未找到相关信息。")
                                 else:
                                     tool_result = "该文献暂无深度知识库文件。"
                             else:
                                 tool_result = "未找到该文献。"
                         except Exception as e:
                             tool_result = f"工具执行出错: {str(e)}"
-                        
-                        # Save summary for potential context rebuild
-                        tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:300]}")
-                            
+                        tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:600]}")
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "name": tool_call.function.name,
-                            "content": tool_result
+                            "content": tool_result,
                         })
-                
-                # CONTEXT MANAGEMENT: If messages are getting too long, rebuild with summary
                 total_content_len = sum(len(str(m.get("content", ""))) for m in messages)
-                if total_content_len > 12000:
-                    # Rebuild messages: keep system + user question + summarized tool results
+                if total_content_len > 24000:
                     summary = "\n".join(tool_results_summary)
                     messages = [
                         {"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": f"{req.message}\n\n【已检索到的信息摘要】\n{summary}\n\n请根据以上信息直接给出推荐结果JSON。"}
+                        {"role": "user", "content": f"{req.message}\n\n【已检索到的信息摘要】\n{summary}\n\n请根据以上信息直接给出推荐结果JSON。"},
                     ]
-                
-                continue
-            
-            # Final response — no tool calls
-            content = message.content or ""
-            
-            with open("data/search_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"--- RAW RESPONSE (iter {iteration}) ---\n{content[:500]}\n")
-                
-            parsed = extract_json(content)
-            
-            # Intercept hallucinatory tool calls in content
-            if parsed and "name" in parsed and "arguments" in parsed and parsed.get("name") == "search_paper_knowledge_base":
-                try:
-                    tool_args = parsed.get("arguments", {})
-                    if isinstance(tool_args, str):
-                        tool_args = json.loads(tool_args)
-                    doc_id = tool_args.get("document_id")
-                    query = tool_args.get("query", "")
-                    doc = db.query(Document).filter(Document.id == doc_id).first()
-                    if doc:
-                        name_without_ext = doc.original_filename.replace('.pdf', '')
-                        item_info = get_item_by_name(name_without_ext)
-                        if item_info and item_info["kb_path"]:
-                            rag_result = simple_rag_search(item_info["kb_path"], query)
-                            tool_result = (rag_result[:800] + "...") if rag_result and len(rag_result) > 800 else (rag_result or "未找到相关信息。")
-                        else:
-                            tool_result = "该文献暂无深度知识库文件。"
-                    else:
-                        tool_result = "未找到该文献。"
-                except Exception as e:
-                    tool_result = f"工具执行出错: {str(e)}"
-                
-                tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:300]}")
-                # Rebuild with summary to force final answer
-                summary = "\n".join(tool_results_summary)
-                messages = [
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": f"{req.message}\n\n【已检索到的信息摘要】\n{summary}\n\n请直接输出JSON结果。"}
-                ]
                 continue
 
+            content = message.content or ""
+            parsed = extract_json(content)
+            if parsed and "name" in parsed and "arguments" in parsed:
+                continue
+            reply = ""
+            doc_ids = []
             if parsed and "reply" in parsed:
-                reply = parsed.get("reply")
-                doc_ids = parsed.get("document_ids", [])
+                reply = parsed.get("reply") or ""
+                doc_ids = parsed.get("document_ids") or []
             else:
                 reply = content
-                doc_ids = []
-            
-            # Fetch full documents
-            final_docs = []
-            if doc_ids and isinstance(doc_ids, list):
-                doc_ids = [int(i) for i in doc_ids if str(i).isdigit() or isinstance(i, int)]
-                if doc_ids:
-                    docs = db.query(Document).filter(Document.id.in_(doc_ids)).all()
-                    for d in docs:
-                        final_docs.append({
-                            "id": d.id,
-                            "title": d.title,
-                            "zh_title": d.zh_title,
-                            "original_filename": d.original_filename,
-                            "venue": d.venue,
-                            "paper_type": d.paper_type,
-                            "jcr_partition": d.jcr_partition,
-                            "ccf_partition": d.ccf_partition,
-                            "core_type": d.core_type,
-                            "research_field": d.research_field,
-                            "research_direction": d.research_direction,
-                            "abstract": d.abstract,
-                            "tags": [{"id": t.id, "name": t.name, "category": t.category} for t in d.tags]
-                        })
-                    
-            return {"reply": reply, "documents": final_docs}
-            
+                ids_in_text = [int(x) for x in re.findall(r"\[(\d+)\]", content)]
+                doc_ids = ids_in_text[:8]
+            if not doc_ids:
+                doc_ids = fallback_ids
+            packed = pack_docs(doc_ids) or pack_docs(fallback_ids)
+            if not reply:
+                reply = "已根据你的条件筛选出下列文献。" if req.lang != "en" else "Here are the matching papers."
+            return {"reply": reply, "documents": packed}
         except Exception as e:
-            with open("data/search_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"--- ERROR ---\n{str(e)}\n")
-            return {"reply": f"系统错误：{str(e)}", "documents": []}
-            
-    return {"reply": "由于检索过程过于复杂，我未能得出结论。请尝试简化您的需求。", "documents": []}
+            return {"reply": f"系统错误：{str(e)}", "documents": pack_docs(fallback_ids)}
+
+    return {"reply": "未能完成检索，已返回本地预筛选结果。", "documents": pack_docs(fallback_ids)}

@@ -72,11 +72,30 @@ const DashboardView = {
                 <span class="breadcrumb-current">{{ currentFolder.name === '默认文件夹' && getLang() === 'en' ? 'Default Folder' : currentFolder.name }}</span>
                 <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">{{ folderDocs.length }} {{ t('dash.files_unit') }}</span>
             </div>
+            <!-- Drop targets while inside a folder -->
+            <div class="folder-drop-rail" v-if="currentFolder" style="display:flex; flex-wrap:wrap; gap:8px; margin: 0 0 16px 0;">
+                <div v-for="(folder, idx) in folders" :key="'rail-'+folder.id"
+                     class="folder-rail-chip"
+                     @dragover.prevent="onFolderDragOver($event, folder)"
+                     @dragleave="onFolderDragLeave($event, folder)"
+                     @drop.prevent="onFolderDrop($event, folder)"
+                     :class="{ 'drop-target': dropFolderId === folder.id }"
+                     style="padding:6px 12px; border-radius:999px; border:1px solid var(--header-border); background:var(--card-bg); font-size:12px; color:var(--text-color); cursor:default;"
+                     :style="dropFolderId === folder.id ? { borderColor: 'var(--primary-accent)', borderStyle: 'dashed' } : {}">
+                    📁 {{ folder.name === '默认文件夹' && getLang() === 'en' ? 'Default Folder' : folder.name }}
+                </div>
+            </div>
  
             <!-- Folder Inner View -->
             <template v-if="currentFolder">
                 <div class="file-grid" v-if="folderDocs.length > 0">
-                    <div class="file-card" v-for="doc in folderDocs" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }" :title="getLang() === 'en' ? doc.title : (doc.zh_title || doc.title)">
+                    <div class="file-card" v-for="doc in folderDocs" :key="doc.id"
+                         draggable="true"
+                         @dragstart="onDocDragStart($event, doc)"
+                         @dragend="onDocDragEnd"
+                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename)"
+                         :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }"
+                         :title="(getLang() === 'en' ? doc.title : (doc.zh_title || doc.title)) + (getLang() === 'en' ? ' — drag to a folder' : ' — 可拖到文件夹')">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
                         <div class="file-cover" style="position: relative;">
                             <img :src="'/cover/' + encodeURIComponent(doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" />
@@ -84,6 +103,10 @@ const DashboardView = {
                                 <div class="spinner" style="width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
                                 <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
+                            </div>
+                            <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; text-align: center; padding: 8px; z-index: 10;" @click.stop>
+                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
                             </div>
                         </div>
                         <div class="file-title">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
@@ -100,10 +123,17 @@ const DashboardView = {
             <template v-else>
                 <!-- Folders Section -->
                 <div class="section-header">
-                    <div class="section-title">{{ t('dash.folders_title') }}</div>
+                    <div class="section-title">{{ t('dash.folders_title') }}
+                        <span class="drag-hint">{{ getLang() === 'en' ? '· Drag covers onto folders' : '· 将封面拖到文件夹' }}</span>
+                    </div>
                 </div>
                 <div class="folder-grid">
-                    <div class="folder-card" v-for="(folder, idx) in folders" :key="folder.id" @click="enterFolder(folder)">
+                    <div class="folder-card" v-for="(folder, idx) in folders" :key="folder.id"
+                         @click="enterFolder(folder)"
+                         @dragover.prevent="onFolderDragOver($event, folder)"
+                         @dragleave="onFolderDragLeave($event, folder)"
+                         @drop.prevent="onFolderDrop($event, folder)"
+                         :class="{ 'drop-target': dropFolderId === folder.id }">
                         <button class="folder-menu-btn" @click.stop="showContextMenu($event, folder)">⋯</button>
                         <div class="folder-icon" :style="{color: folderColor(idx)}">
                             ${FOLDER_SVG}
@@ -125,7 +155,13 @@ const DashboardView = {
                     <div class="section-title">{{ t('dash.recent_title') }}</div>
                 </div>
                 <div class="recent-scroll">
-                    <div class="recent-card" v-for="doc in recentDocs" :key="doc.id" :title="doc.title" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }">
+                    <div class="recent-card" v-for="doc in recentDocs" :key="doc.id"
+                         draggable="true"
+                         @dragstart="onDocDragStart($event, doc)"
+                         @dragend="onDocDragEnd"
+                         :title="(doc.title || '') + (getLang() === 'en' ? ' — drag to a folder' : ' — 可拖到文件夹')"
+                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename)"
+                         :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
                         <div style="position: relative; width: 100%; height: 100%;">
                             <img :src="'/cover/' + encodeURIComponent(doc.original_filename.replace('.pdf',''))" onerror="this.src='/static/favicon.png'" style="width: 100%; height: 100%; object-fit: cover;" />
@@ -133,6 +169,10 @@ const DashboardView = {
                                 <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
                                 <div style="font-size: 10px; font-weight: 600; color: #fff;">{{ doc.progress }} {{ doc.percent }}%</div>
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
+                            </div>
+                            <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; text-align: center; padding: 6px; z-index: 10;" @click.stop>
+                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
                             </div>
                         </div>
                         <div class="card-title-bar">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
@@ -152,6 +192,8 @@ const DashboardView = {
         const currentFolder = ref(null);
         const folderDocs = ref([]);
         const contextTarget = ref(null);
+        const dropFolderId = ref(null);
+        const dragMoved = ref(false);
 
         let statusPollInterval = null;
         const startStatusPolling = () => {
@@ -370,6 +412,25 @@ const DashboardView = {
             const name = filename.replace('.pdf', '');
             window.location.href = '/chat/' + encodeURIComponent(name);
         };
+
+        const resumeDoc = async (doc) => {
+            try {
+                const book = (doc.original_filename || doc.title || '').replace(/\.pdf$/i, '');
+                if (!book) return;
+                const res = await fetch('/api/resume/' + encodeURIComponent(book), { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (data.status === 'error') {
+                    alert(data.message || (getLang() === 'en' ? 'Resume failed' : '无法继续解析'));
+                    return;
+                }
+                doc.status = 'processing';
+                doc.progress = getLang() === 'en' ? 'Resuming…' : '继续解析中…';
+                doc.percent = doc.percent || 5;
+                startStatusPolling();
+            } catch (e) {
+                alert(getLang() === 'en' ? 'Resume failed' : '无法继续解析');
+            }
+        };
         
         const deleteDoc = async (e, id) => {
             e.stopPropagation();
@@ -414,10 +475,65 @@ const DashboardView = {
         // Folder color helper
         const folderColor = (idx) => FOLDER_COLORS[idx % FOLDER_COLORS.length];
 
+        // --- Drag paper covers into folders ---
+        const onDocDragStart = (e, doc) => {
+            if (!doc || doc.id == null) return;
+            e.dataTransfer.setData('text/paperfect-doc-id', String(doc.id));
+            e.dataTransfer.setData('text/plain', String(doc.id));
+            e.dataTransfer.effectAllowed = 'move';
+            try {
+                e.dataTransfer.setDragImage(e.currentTarget, 40, 40);
+            } catch (_) {}
+        };
+        const onDocDragEnd = () => {
+            // Suppress the click that browsers fire after a successful drag
+            dragMoved.value = true;
+            dropFolderId.value = null;
+            setTimeout(() => { dragMoved.value = false; }, 120);
+        };
+        const onFolderDragOver = (e, folder) => {
+            // Only highlight for our document drags (or unknown types)
+            e.dataTransfer.dropEffect = 'move';
+            dropFolderId.value = folder.id;
+        };
+        const onFolderDragLeave = (e, folder) => {
+            if (dropFolderId.value === folder.id) dropFolderId.value = null;
+        };
+        const onFolderDrop = async (e, folder) => {
+            dropFolderId.value = null;
+            const raw = e.dataTransfer.getData('text/paperfect-doc-id') || e.dataTransfer.getData('text/plain');
+            const docId = parseInt(raw, 10);
+            if (!docId || !folder) return;
+            // Ignore PDF file drops here (upload zone handles those)
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) return;
+            try {
+                const res = await fetch('/api/library/documents/' + docId + '/move', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: folder.id })
+                });
+                if (!res.ok) throw new Error('move failed ' + res.status);
+                await Promise.all([loadFolders(), loadRecentDocs()]);
+                if (currentFolder.value) {
+                    if (currentFolder.value.id === folder.id) {
+                        await loadFolderDocs(folder.id);
+                    } else {
+                        // left current folder
+                        folderDocs.value = folderDocs.value.filter(d => d.id !== docId);
+                    }
+                }
+            } catch (err) {
+                console.error('[Dashboard] move document failed', err);
+                alert(getLang() === 'en' ? 'Failed to move paper' : '移动文献失败');
+            }
+        };
+
         return { 
             folders, recentDocs, isDragOver, currentFolder, folderDocs,
-            triggerUpload, handleUpload, openChat, deleteDoc, canOpenDoc,
+            dropFolderId, dragMoved,
+            triggerUpload, handleUpload, openChat, resumeDoc, deleteDoc, canOpenDoc,
             onDragOver, onDragLeave, onDrop,
+            onDocDragStart, onDocDragEnd, onFolderDragOver, onFolderDragLeave, onFolderDrop,
             enterFolder, exitFolder, openCreateFolder,
             showContextMenu, folderColor, t: translate, getLang
         };
@@ -521,6 +637,7 @@ const ListView = {
                 <div class="doc-title" style="position: relative;">
                     {{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}
                     <div v-if="getLang() !== 'en' && doc.zh_title" style="font-size: 14px; color: var(--text-muted); font-weight: normal; margin-top: 5px;">{{ doc.title }}</div>
+                    <div v-if="isMetaPending(doc)" class="meta-pending-badge">{{ getLang() === 'en' ? 'Metadata pending' : '待补全分类信息' }}</div>
                     
                     <div v-if="doc.status === 'processing'" style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <div class="spinner" style="width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--primary-accent); border-radius: 50%;"></div>
@@ -842,7 +959,15 @@ const ListView = {
             return dict[val] || val;
         };
         
-        return { filteredDocuments, openChat, deleteDoc, parseKeywords, tMetadata, t: translate, getLang, canOpenDoc };
+        const isMetaPending = (doc) => {
+            if (!doc) return false;
+            const noAbs = !doc.abstract && !doc.en_abstract;
+            const noTags = !doc.tags || doc.tags.length === 0;
+            const noType = !doc.paper_type;
+            return noAbs && noTags && noType;
+        };
+
+        return { filteredDocuments, openChat, deleteDoc, parseKeywords, tMetadata, t: translate, getLang, canOpenDoc, isMetaPending };
     }
 };
 

@@ -90,7 +90,7 @@ const TRANSLATIONS = {
     "chat.send": "发送 (Enter)",
     "chat.source_label": "原文 (支持划选捕获与手动修改)",
     "chat.source_placeholder": "在主页面的文献中划选文字，将自动显示在此处...",
-    "chat.translate_btn": "手动翻译",
+    "chat.translate_btn": "翻译",
     "chat.result_label": "翻译结果",
     "chat.status_waiting": "等待中...",
     "chat.embed_back": "嵌入网页",

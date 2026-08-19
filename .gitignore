@@ -74,3 +74,7 @@ _test_pipeline/
 Paperfect_Setup.exe
 *.exe
 
+# Local tool caches / logs
+_node_cache/
+*.log
+

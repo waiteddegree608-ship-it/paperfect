@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import Dict, List
 from backend.core.config import get_base_dir
 
@@ -11,9 +12,8 @@ def get_character_config(char_id: str) -> dict:
             return json.load(f)
     return {}
 
-def get_stage1_prompt(prompt_name: str = "计算机+人工智能", ppt_lang: str = "zh") -> str:
+def _load_stage1_prompt_file(prompt_name: str = "提示词汇总", ppt_lang: str = "zh") -> str:
     prompt_dir = os.path.join(get_base_dir(), "backend", "standalone_pdf2ppt", "prompts")
-    # 1. Determine target file based on language mode
     if ppt_lang == "en":
         prompt_file = os.path.join(prompt_dir, f"{prompt_name}_en.md")
         if not os.path.exists(prompt_file):
@@ -22,20 +22,76 @@ def get_stage1_prompt(prompt_name: str = "计算机+人工智能", ppt_lang: str
         prompt_file = os.path.join(prompt_dir, f"{prompt_name}_zh.md")
         if not os.path.exists(prompt_file):
             prompt_file = os.path.join(prompt_dir, f"{prompt_name}.md")
-            
+
     p1 = "未找到指定提示词" if ppt_lang == "zh" else "Specified prompt file not found"
     if os.path.exists(prompt_file):
         with open(prompt_file, "r", encoding="utf-8") as f:
-            p1 = f.read()
-    else:
-        # Fallback to default if custom not found
-        default_file = os.path.join(prompt_dir, "计算机+人工智能_en.md" if ppt_lang == "en" else "计算机+人工智能_zh.md")
-        if not os.path.exists(default_file):
-            default_file = os.path.join(prompt_dir, "计算机+人工智能.md")
-        if os.path.exists(default_file):
-            with open(default_file, "r", encoding="utf-8") as f:
-                p1 = f.read()
-                
+            return f.read()
+    default_file = os.path.join(prompt_dir, "提示词汇总_en.md" if ppt_lang == "en" else "提示词汇总_zh.md")
+    if not os.path.exists(default_file):
+        default_file = os.path.join(prompt_dir, "提示词汇总.md")
+    if not os.path.exists(default_file):
+        default_file = os.path.join(prompt_dir, "计算机+人工智能_en.md" if ppt_lang == "en" else "计算机+人工智能.md")
+    if not os.path.exists(default_file):
+        default_file = os.path.join(prompt_dir, "计算机+人工智能.md")
+    if os.path.exists(default_file):
+        with open(default_file, "r", encoding="utf-8") as f:
+            return f.read()
+    return p1
+
+
+def split_prompt_sections(raw: str) -> List[Dict[str, str]]:
+    """Split a prompt markdown file on ### headings so each question can be answered in parallel."""
+    text = (raw or "").strip()
+    if not text:
+        return []
+    parts = re.split(r"(?m)^###\s+", text)
+    jobs = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        first, _, rest = p.partition("\n")
+        title = first.strip()
+        body = rest.strip()
+        if not body:
+            continue
+        if title.startswith("提示词汇总") or title.lower().startswith("prompt summary"):
+            continue
+        jobs.append({"title": title, "body": body})
+    if not jobs:
+        jobs = [{"title": "学术解析", "body": text}]
+    return jobs
+
+
+def get_stage1_prompt_jobs(prompt_name: str = "提示词汇总", ppt_lang: str = "zh") -> List[Dict[str, str]]:
+    """One LLM job per ### section of the selected prompt file."""
+    raw = _load_stage1_prompt_file(prompt_name, ppt_lang)
+    sections = split_prompt_sections(raw)
+    jobs = []
+    for sec in sections:
+        title = sec["title"]
+        body = sec["body"]
+        if ppt_lang == "en":
+            prompt = (
+                "Read the extracted paper text carefully. Answer ONLY the following question "
+                "as a detailed Markdown section in ENGLISH.\n\n"
+                f"Section: {title}\n{body}\n\n"
+                "Be thorough and rigorous. Keep method names, metrics, and key numbers. "
+                "Output only this section."
+            )
+        else:
+            prompt = (
+                "请仔细阅读提取出的论文全文，只针对下面这一条需求写出详尽的 Markdown 小节（必须使用中文）。\n\n"
+                f"【本节标题】{title}\n【本节要求】\n{body}\n\n"
+                "要求深入、充实，保留关键实验数字、模型名称与方法细节。只输出该小节正文。"
+            )
+        jobs.append({"title": title, "prompt": prompt})
+    return jobs
+
+
+def get_stage1_prompt(prompt_name: str = "提示词汇总", ppt_lang: str = "zh") -> str:
+    p1 = _load_stage1_prompt_file(prompt_name, ppt_lang)
     if ppt_lang == "en":
         return f"""Please read the provided PDF content carefully, and generate a deep academic analysis report (in Markdown format) for this paper based on the following guidelines.
 

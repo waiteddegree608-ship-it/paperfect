@@ -81,7 +81,7 @@ def _is_ellipse(shape) -> bool:
             return False
 
 
-@router.get("/api/ppt_export_json/{book_name}")
+@router.get("/api/ppt_export_json/{book_name:path}")
 async def export_json_for_pptx_main(book_name: str):
     """Convert PPTX → JSON for the in-app web editor.
 
@@ -89,8 +89,11 @@ async def export_json_for_pptx_main(book_name: str):
     with the text, otherwise the editor only shows naked text + blue connector arrows.
     """
     try:
+        from urllib.parse import unquote
         from pptx import Presentation
         from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+        book_name = unquote(book_name or "").strip().strip("/")
 
         papers_dir = os.path.join(get_base_dir(), "data", "papers")
         textbooks_dir = os.path.join(get_base_dir(), "data", "textbooks")
@@ -100,7 +103,22 @@ async def export_json_for_pptx_main(book_name: str):
             pptx_path = os.path.join(textbooks_dir, book_name, "pptx", f"{book_name}_Full_Presentation.pptx")
 
         if not os.path.exists(pptx_path):
-            return {"error": "PPTX not found"}
+            # fuzzy match folder name (en-dash / truncated titles)
+            for root in (papers_dir, textbooks_dir):
+                if not os.path.isdir(root):
+                    continue
+                for d in os.listdir(root):
+                    if d == book_name or d.startswith(book_name[:40]) or book_name.startswith(d[:40]):
+                        cand = os.path.join(root, d, "pptx", f"{d}_Full_Presentation.pptx")
+                        if os.path.exists(cand):
+                            pptx_path = cand
+                            book_name = d
+                            break
+                if os.path.exists(pptx_path):
+                    break
+
+        if not os.path.exists(pptx_path):
+            return {"error": f"PPTX not found for {book_name!r}"}
 
         prs = Presentation(pptx_path)
         # 96 CSS-px per inch (frontend multiplies by 1280/960 to canvas)
@@ -291,31 +309,146 @@ async def export_json_for_pptx_main(book_name: str):
             })
 
         # Page mapping for PDF↔PPT sync
+        # CRITICAL: slide index != figure index when follow-up ("补充说明") slides exist.
         page_mapping = {}
-        meta_path = os.path.join(papers_dir, book_name, "images", "figures_metadata.json")
-        if not os.path.exists(meta_path):
-            meta_path = os.path.join(textbooks_dir, book_name, "images", "figures_metadata.json")
+        n_pptx_slides = len(slides)
 
-        if os.path.exists(meta_path):
+        def _natural_fig_key(name: str):
+            import re as _re
+            m = _re.search(r"Figure_(\d+)", name, _re.I)
+            return (int(m.group(1)) if m else 10**9, name)
+
+        def _load_meta(meta_path: str):
+            with open(meta_path, "r", encoding="utf-8") as f_meta:
+                raw = json.load(f_meta)
+            # support {file: page} or {pages: {file: page}}
+            if isinstance(raw, dict) and "pages" in raw and isinstance(raw["pages"], dict):
+                return raw["pages"]
+            return raw if isinstance(raw, dict) else {}
+
+        # 1) Prefer slide_sync_map.json written by generate_full_ppt.js
+        for root in (papers_dir, textbooks_dir):
+            map_path = os.path.join(root, book_name, "pptx", "slide_sync_map.json")
+            if os.path.exists(map_path):
+                try:
+                    with open(map_path, "r", encoding="utf-8") as f_map:
+                        sync = json.load(f_map)
+                    pm = sync.get("page_mapping") or {}
+                    if pm:
+                        page_mapping = {str(k): int(v) for k, v in pm.items() if v is not None}
+                        print(f"[ppt_export] using slide_sync_map.json ({len(page_mapping)} entries)")
+                        break
+                except Exception as e:
+                    print("Error reading slide_sync_map.json:", e)
+
+        # 2) Reconstruct from ppt_cache + figures_metadata (handles follow-ups without re-export)
+        if not page_mapping:
             try:
-                with open(meta_path, "r", encoding="utf-8") as f_meta:
-                    meta_data = json.load(f_meta)
-                img_dir = os.path.dirname(meta_path)
-                img_files = sorted(
-                    [f for f in os.listdir(img_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
-                )
-                # Dedupe naming schemes (same as generate_full_ppt.js)
+                meta_path = os.path.join(papers_dir, book_name, "images", "figures_metadata.json")
+                if not os.path.exists(meta_path):
+                    meta_path = os.path.join(textbooks_dir, book_name, "images", "figures_metadata.json")
+                cache_path = os.path.join(papers_dir, book_name, "pptx", "ppt_cache_zh.json")
+                if not os.path.exists(cache_path):
+                    cache_path = os.path.join(papers_dir, book_name, "pptx", "ppt_cache.json")
+                if not os.path.exists(cache_path):
+                    cache_path = os.path.join(textbooks_dir, book_name, "pptx", "ppt_cache_zh.json")
+
+                meta_data = _load_meta(meta_path) if os.path.exists(meta_path) else {}
+                cache = {}
+                if os.path.exists(cache_path):
+                    with open(cache_path, "r", encoding="utf-8") as f_c:
+                        cache = json.load(f_c)
+
+                img_dir = os.path.join(papers_dir, book_name, "images")
+                if not os.path.isdir(img_dir):
+                    img_dir = os.path.join(textbooks_dir, book_name, "images")
+                img_files = []
+                if os.path.isdir(img_dir):
+                    img_files = [f for f in os.listdir(img_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
                 short = [f for f in img_files if f.startswith("Figure_")]
-                long = [f for f in img_files if "_Figure_" in f]
-                if len(short) >= 2 and len(long) >= 2:
-                    def _sum(fs):
-                        return sum(os.path.getsize(os.path.join(img_dir, f)) for f in fs)
-                    img_files = long if _sum(long) >= _sum(short) else short
-                for idx, fname in enumerate(img_files):
-                    if fname in meta_data:
-                        page_mapping[str(idx)] = meta_data[fname]
+                long = [f for f in img_files if "_Figure_" in f and not f.startswith("Figure_")]
+                if short:
+                    # Default: lexicographic (historical JS .sort()). Natural used only if
+                    # it uniquely matches pptx slide count better — tried below via dual build.
+                    img_files = sorted(short)
+                elif long:
+                    img_files = sorted(long)
+                else:
+                    img_files = sorted(img_files)
+
+                def _build_from(files_list):
+                    pm_local = {}
+                    si_local = 0
+                    for fname in files_list:
+                        page = meta_data.get(fname)
+                        if page is None:
+                            for mk, mv in meta_data.items():
+                                if mk == fname or mk.endswith(fname) or fname.endswith(mk):
+                                    page = mv
+                                    break
+                        if page is None:
+                            continue
+                        pm_local[str(si_local)] = int(page)
+                        si_local += 1
+                        entry = cache.get(fname) or {}
+                        fus = entry.get("follow_up_slides") if isinstance(entry, dict) else None
+                        if isinstance(fus, list):
+                            for _ in fus:
+                                pm_local[str(si_local)] = int(page)
+                                si_local += 1
+                    return pm_local, si_local
+
+                # Try lex then natural; prefer exact match to pptx length
+                candidates = []
+                for flist in (
+                    sorted(short) if short else sorted(img_files),
+                    sorted(short, key=_natural_fig_key) if short else sorted(img_files, key=_natural_fig_key),
+                ):
+                    pm_try, si_try = _build_from(flist)
+                    candidates.append((pm_try, si_try))
+                page_mapping, slide_i = candidates[0]
+                for pm_try, si_try in candidates:
+                    if n_pptx_slides > 0 and si_try == n_pptx_slides:
+                        page_mapping, slide_i = pm_try, si_try
+                        break
+
+                # If we overshot/undershot pptx slide count, pad/truncate safely
+                if n_pptx_slides > 0 and page_mapping:
+                    # If fewer mapped than slides, inherit last known page
+                    last_page = None
+                    for i in range(n_pptx_slides):
+                        k = str(i)
+                        if k in page_mapping:
+                            last_page = page_mapping[k]
+                        elif last_page is not None:
+                            page_mapping[k] = last_page
+                    # drop extras beyond pptx length
+                    page_mapping = {k: v for k, v in page_mapping.items() if int(k) < n_pptx_slides}
+
+                print(f"[ppt_export] reconstructed page_mapping ({len(page_mapping)} entries for {n_pptx_slides} slides)")
             except Exception as e:
-                print("Error building page mapping:", e)
+                print("Error reconstructing page mapping:", e)
+                import traceback
+                traceback.print_exc()
+
+        # 3) Legacy naive map (figure index only — last resort)
+        if not page_mapping:
+            meta_path = os.path.join(papers_dir, book_name, "images", "figures_metadata.json")
+            if not os.path.exists(meta_path):
+                meta_path = os.path.join(textbooks_dir, book_name, "images", "figures_metadata.json")
+            if os.path.exists(meta_path):
+                try:
+                    meta_data = _load_meta(meta_path)
+                    img_dir = os.path.dirname(meta_path)
+                    img_files = sorted(
+                        [f for f in os.listdir(img_dir) if f.lower().endswith((".png", ".jpg", ".jpeg")) and f.startswith("Figure_")],
+                        key=_natural_fig_key,
+                    )
+                    for idx, fname in enumerate(img_files):
+                        if fname in meta_data:
+                            page_mapping[str(idx)] = meta_data[fname]
+                except Exception as e:
+                    print("Error building legacy page mapping:", e)
 
         return {"slides": slides, "page_mapping": page_mapping}
     except Exception as e:

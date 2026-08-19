@@ -55,7 +55,7 @@ const DashboardView = {
                  @dragleave.prevent="onDragLeave" 
                  @drop.prevent="onDrop"
                  :class="{dragover: isDragOver}">
-                <input type="file" id="libUploadInput" accept=".pdf" style="display:none;" @change="handleUpload">
+                <input type="file" id="libUploadInput" accept=".pdf" multiple style="display:none;" @change="handleUpload">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
@@ -105,8 +105,8 @@ const DashboardView = {
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
                             </div>
                             <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; text-align: center; padding: 8px; z-index: 10;" @click.stop>
-                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
-                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
+                                <div style="font-size: 10px; font-weight: 600;">{{ doc.progress || (getLang() === 'en' ? 'Incomplete' : '未完成') }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Continue' : '继续' }}</button>
                             </div>
                         </div>
                         <div class="file-title">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
@@ -171,8 +171,8 @@ const DashboardView = {
                                 <div v-if="canOpenDoc(doc)" style="font-size: 9px; opacity: 0.85;">{{ getLang() === 'en' ? 'Click to open' : '可点击打开' }}</div>
                             </div>
                             <div v-else-if="doc.status === 'interrupted'" style="position: absolute; left: 0; right: 0; bottom: 0; background: rgba(127,29,29,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #fff; text-align: center; padding: 6px; z-index: 10;" @click.stop>
-                                <div style="font-size: 10px; font-weight: 600;">{{ getLang() === 'en' ? 'Interrupted' : '已中断' }}</div>
-                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Resume' : '重试继续' }}</button>
+                                <div style="font-size: 10px; font-weight: 600;">{{ doc.progress || (getLang() === 'en' ? 'Incomplete' : '未完成') }}</div>
+                                <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Continue' : '继续' }}</button>
                             </div>
                         </div>
                         <div class="card-title-bar">{{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}</div>
@@ -275,36 +275,40 @@ const DashboardView = {
             const uploadBtn = document.getElementById('finalUploadBtn');
             if (uploadBtn) {
                 uploadBtn.onclick = async () => {
-                    const file = window.uploadSelectedFile;
-                    if(!file) return;
-                    
+                    const files = window.uploadSelectedFiles && window.uploadSelectedFiles.length
+                        ? window.uploadSelectedFiles
+                        : (window.uploadSelectedFile ? [window.uploadSelectedFile] : []);
+                    if (!files.length) return;
                     uploadBtn.innerText = translate('upload.uploading');
                     uploadBtn.disabled = true;
-                    
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('item_type', document.getElementById('upload_item_type').value);
-                    
-                    const folderSelect = document.getElementById('upload_folder_select').value;
-                    const folderNew = document.getElementById('upload_folder_new').value;
-                    
-                    if (folderNew) {
-                        formData.append('folder_name', folderNew);
-                    } else if (folderSelect) {
-                        formData.append('folder_id', folderSelect);
-                    }
-                    
-                    if (document.getElementById('upload_item_type').value === 'paper') {
-                        formData.append('prompt_type', document.getElementById('upload_prompt').value);
-                        formData.append('ppt_mode', document.getElementById('upload_ppt_mode').value);
-                        formData.append('ppt_lang', document.getElementById('upload_language').value);
-                    }
-                    
                     try {
-                        await fetch('/api/library/upload', { method: 'POST', body: formData });
+                        for (let i = 0; i < files.length; i++) {
+                            const file = files[i];
+                            uploadBtn.innerText = translate('upload.uploading') + ` (${i + 1}/${files.length})`;
+                            const fd = new FormData();
+                            fd.append('file', file);
+                            fd.append('item_type', document.getElementById('upload_item_type').value);
+                            const folderSelect = document.getElementById('upload_folder_select').value;
+                            const folderNew = document.getElementById('upload_folder_new').value;
+                            if (folderNew) fd.append('folder_name', folderNew);
+                            else if (folderSelect) fd.append('folder_id', folderSelect);
+                            if (document.getElementById('upload_item_type').value === 'paper') {
+                                fd.append('prompt_type', document.getElementById('upload_prompt').value || '提示词汇总');
+                                fd.append('ppt_mode', document.getElementById('upload_ppt_mode').value);
+                                fd.append('ppt_lang', document.getElementById('upload_language').value);
+                                fd.append('do_translate', document.getElementById('upload_do_translate').checked ? 'true' : 'false');
+                                fd.append('do_annotate', document.getElementById('upload_do_annotate').checked ? 'true' : 'false');
+                                fd.append('do_ppt', document.getElementById('upload_do_ppt').checked ? 'true' : 'false');
+                            }
+                            const res = await fetch('/api/library/upload', { method: 'POST', body: fd });
+                            if (!res.ok) {
+                                const err = await res.json().catch(() => ({}));
+                                throw new Error(err.detail || err.message || ('HTTP ' + res.status));
+                            }
+                        }
                         window.location.reload();
                     } catch (e) {
-                        alert(translate('upload.error'));
+                        alert(translate('upload.error') + (e && e.message ? ': ' + e.message : ''));
                         uploadBtn.innerText = translate('upload.confirm');
                         uploadBtn.disabled = false;
                     }
@@ -380,32 +384,51 @@ const DashboardView = {
         // Drag and drop
         const onDragOver = () => { isDragOver.value = true; };
         const onDragLeave = () => { isDragOver.value = false; };
-        const onDrop = (e) => {
-            isDragOver.value = false;
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                const file = files[0];
-                window.uploadSelectedFile = file;
-                document.getElementById('selectedFileName').innerText = translate('upload.current_file') + file.name;
-                document.getElementById('upload_folder_select').innerHTML = '<option value="">' + translate('upload.folder_default') + '</option>' + folders.value.map(f => {
-                    const name = f.name === '默认文件夹' ? translate('upload.folder_default') : f.name;
-                    return `<option value="${f.id}">${name}</option>`;
-                }).join('');
-                document.getElementById('uploadModal').classList.add('active');
+        const fillUploadModal = async (fileList) => {
+            const files = Array.from(fileList || []).filter(f => (f.name || '').toLowerCase().endsWith('.pdf'));
+            if (!files.length) return;
+            window.uploadSelectedFiles = files;
+            window.uploadSelectedFile = files[0];
+            const nameEl = document.getElementById('selectedFileName');
+            const listEl = document.getElementById('selectedFileList');
+            if (nameEl) {
+                nameEl.innerText = files.length === 1
+                    ? (translate('upload.current_file') + files[0].name)
+                    : (translate('upload.batch_count') + files.length);
             }
-        };
-
-        const triggerUpload = () => { document.getElementById('libUploadInput').click(); };
-        const handleUpload = (e) => {
-            const file = e.target.files[0];
-            if(!file) return;
-            window.uploadSelectedFile = file;
-            document.getElementById('selectedFileName').innerText = translate('upload.current_file') + file.name;
+            if (listEl) {
+                listEl.innerHTML = files.map(f => `<li>${f.name}</li>`).join('');
+            }
             document.getElementById('upload_folder_select').innerHTML = '<option value="">' + translate('upload.folder_default') + '</option>' + folders.value.map(f => {
                 const name = f.name === '默认文件夹' ? translate('upload.folder_default') : f.name;
                 return `<option value="${f.id}">${name}</option>`;
             }).join('');
+            try {
+                const lang = getLang();
+                const res = await fetch('/api/prompts?lang=' + lang);
+                const data = await res.json();
+                const sel = document.getElementById('upload_prompt');
+                if (sel && data.prompts) {
+                    sel.innerHTML = data.prompts.map(p => {
+                        const id = p.id || p;
+                        const name = p.name || p.id || p;
+                        const selected = id === '提示词汇总' ? ' selected' : '';
+                        return `<option value="${id}"${selected}>${name}</option>`;
+                    }).join('');
+                    if (!sel.value && data.prompts[0]) sel.value = data.prompts[0].id || data.prompts[0];
+                }
+            } catch (e) {}
             document.getElementById('uploadModal').classList.add('active');
+        };
+
+        const onDrop = (e) => {
+            isDragOver.value = false;
+            fillUploadModal(e.dataTransfer.files);
+        };
+
+        const triggerUpload = () => { document.getElementById('libUploadInput').click(); };
+        const handleUpload = (e) => {
+            fillUploadModal(e.target.files);
         };
         
         const openChat = (filename) => {
@@ -544,6 +567,11 @@ const DashboardView = {
 const AutoLayout = {
     template: `
         <div style="display:flex; flex-direction:column; width: 100%; height: 100%; flex: 1; overflow: hidden;">
+            <div class="sub-nav-bar" style="display:flex;gap:8px;padding:10px 18px;border-bottom:1px solid var(--header-border);">
+                <router-link to="/auto/list" class="layout-btn" active-class="active">{{ t('auto.tab_classify') }}</router-link>
+                <router-link to="/auto/graph" class="layout-btn" active-class="active">{{ t('auto.tab_relations') }}</router-link>
+                <router-link to="/auto/search" class="layout-btn" active-class="active">{{ t('auto.tab_search') }}</router-link>
+            </div>
             <div class="content-area">
                 <!-- Main Area for sub-routes -->
                 <div class="main-view">
@@ -551,23 +579,7 @@ const AutoLayout = {
                 </div>
                 
                 <!-- Right Sidebar (Only for List & Graph) -->
-                <div class="right-sidebar" v-if="$route.path !== '/auto/search'">
-                    
-                    <!-- If in Graph View, show search and cards like Image 3 -->
-                    <template v-if="$route.path === '/auto/graph'">
-                        <input type="text" v-model="filterState.search" :placeholder="t('auto.search_graph_nodes')" style="background:var(--input-bg); border:1px solid var(--header-border); padding:8px; width:100%; box-sizing:border-box;">
-                        
-                        <div class="list-card" style="margin-bottom:10px; margin-top:20px;">
-                            <div class="list-card-line" style="width: 100%;"></div>
-                            <div style="display:flex; gap:10px;">
-                                <div class="list-card-line" style="width: 40%;"></div>
-                                <div class="list-card-line" style="width: 40%;"></div>
-                            </div>
-                        </div>
-                    </template>
-                    
-                    <!-- If in List View, show Checkboxes & Buttons like Image 2 -->
-                    <template v-else>
+                <div class="right-sidebar" v-if="$route.path === '/auto/list'">
                         <div class="filter-section">
                             <div class="filter-title">{{ t('filter.search_title') }}</div>
                             <input type="text" v-model="filterState.search" :placeholder="t('filter.search_placeholder')" style="width:100%; box-sizing:border-box; background:var(--input-bg); color:var(--text-color); border:1px solid var(--header-border); height:28px; padding: 0 5px;">
@@ -597,17 +609,6 @@ const AutoLayout = {
                             </div>
                         </div>
 
-                        <!-- CAS Partition -->
-                        <div class="filter-section" style="padding-bottom: 2px;">
-                            <div style="text-align:center; font-size:12px; margin-bottom:5px;">{{ t('filter.cas_partition') }}</div>
-                            <div class="segmented-control">
-                                <button :class="{active: filterState.cas === '一区'}" @click="filterState.cas = filterState.cas === '一区' ? '' : '一区'">{{ t('filter.q1') }}</button>
-                                <button :class="{active: filterState.cas === '二区'}" @click="filterState.cas = filterState.cas === '二区' ? '' : '二区'">{{ t('filter.q2') }}</button>
-                                <button :class="{active: filterState.cas === '三区'}" @click="filterState.cas = filterState.cas === '三区' ? '' : '三区'">{{ t('filter.q3') }}</button>
-                                <button :class="{active: filterState.cas === '四区'}" @click="filterState.cas = filterState.cas === '四区' ? '' : '四区'">{{ t('filter.q4') }}</button>
-                            </div>
-                        </div>
-
                         <!-- CCF Partition -->
                         <div class="filter-section" style="padding-bottom: 2px;">
                             <div style="text-align:center; font-size:12px; margin-bottom:5px;">{{ t('filter.ccf_partition') }}</div>
@@ -617,8 +618,6 @@ const AutoLayout = {
                                 <button :class="{active: filterState.ccf === 'C'}" @click="filterState.ccf = filterState.ccf === 'C' ? '' : 'C'">C</button>
                             </div>
                         </div>
-                    </template>
-                    
                 </div>
             </div>
         </div>
@@ -634,6 +633,7 @@ const ListView = {
         <div>
             <div class="doc-list-item" v-for="doc in filteredDocuments" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default', opacity: doc.status === 'processing' ? 0.92 : 1 }">
                 <button class="delete-btn" @click="deleteDoc($event, doc.id)" title="永久删除" style="right: 20px; top: 20px;">×</button>
+                <button class="delete-btn" @click="retagDoc($event, doc)" :title="t('auto.retag')" style="right: 52px; top: 20px; font-size:11px; width:auto; padding:0 8px;">{{ t('auto.retag') }}</button>
                 <div class="doc-title" style="position: relative;">
                     {{ getLang() === 'en' ? doc.title : (doc.zh_title || doc.title) }}
                     <div v-if="getLang() !== 'en' && doc.zh_title" style="font-size: 14px; color: var(--text-muted); font-weight: normal; margin-top: 5px;">{{ doc.title }}</div>
@@ -647,11 +647,16 @@ const ListView = {
                         </div>
                         <span v-if="canOpenDoc(doc)" style="font-size: 11px; color: var(--text-muted);">{{ getLang() === 'en' ? 'Click to open (partial ready)' : '可点击打开（部分已就绪）' }}</span>
                     </div>
+                    <div v-else-if="doc.status === 'interrupted'" style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;" @click.stop>
+                        <span style="font-size: 12px; color: #f87171; font-weight: 600;">{{ doc.progress || (getLang() === 'en' ? 'Incomplete' : '未完成') }}</span>
+                        <button type="button" @click.stop="resumeDoc(doc)" style="background:#10b981;border:none;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;">{{ getLang() === 'en' ? 'Continue' : '继续' }}</button>
+                    </div>
                 </div>
                 
                 <!-- Display new metadata tags -->
                 <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">
                     <span class="tag-badge" style="background: var(--header-bg); border: 1px solid var(--primary-accent); color: var(--primary-accent);" v-if="doc.venue && doc.venue !== 'Unknown'">{{ doc.venue }}</span>
+                    <span class="tag-badge" style="background: rgba(148, 163, 184, 0.2); color: #cbd5e1;" v-if="doc.year">{{ doc.year }}</span>
                     <span class="tag-badge" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71;" v-if="doc.paper_type">{{ tMetadata(doc.paper_type) }}</span>
                     <span class="tag-badge" style="background: rgba(231, 76, 60, 0.2); color: #e74c3c;" v-if="doc.ccf_partition">CCF {{ doc.ccf_partition }}</span>
                     <span class="tag-badge" style="background: rgba(155, 89, 182, 0.2); color: #9b59b6;" v-if="doc.jcr_partition">JCR {{ tMetadata(doc.jcr_partition) }}</span>
@@ -769,12 +774,44 @@ const ListView = {
             const name = filename.replace('.pdf', '');
             window.location.href = '/chat/' + encodeURIComponent(name);
         };
+
+        const resumeDoc = async (doc) => {
+            try {
+                const book = (doc.original_filename || doc.title || '').replace(/\.pdf$/i, '');
+                if (!book) return;
+                const res = await fetch('/api/resume/' + encodeURIComponent(book), { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (data.status === 'error') {
+                    alert(data.message || (getLang() === 'en' ? 'Resume failed' : '无法继续'));
+                    return;
+                }
+                doc.status = 'processing';
+                doc.progress = getLang() === 'en' ? 'Resuming…' : '继续中…';
+                doc.percent = doc.percent || 5;
+                startStatusPolling();
+            } catch (e) {
+                alert(getLang() === 'en' ? 'Resume failed' : '无法继续');
+            }
+        };
         
         const deleteDoc = async (e, id) => {
             e.stopPropagation();
             if (confirm(translate('confirm.delete_doc'))) {
                 await fetch('/api/library/documents/' + id, { method: 'DELETE' });
                 rawDocuments.value = rawDocuments.value.filter(d => d.id !== id);
+            }
+        };
+
+        const retagDoc = async (e, doc) => {
+            e.stopPropagation();
+            try {
+                const res = await fetch('/api/library/documents/' + doc.id + '/retag', { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || data.message || res.status);
+                Object.assign(doc, data);
+                alert(translate('auto.retag_ok'));
+            } catch (err) {
+                alert((translate('auto.retag_fail') || 'retag failed') + ': ' + (err.message || err));
             }
         };
 
@@ -967,70 +1004,100 @@ const ListView = {
             return noAbs && noTags && noType;
         };
 
-        return { filteredDocuments, openChat, deleteDoc, parseKeywords, tMetadata, t: translate, getLang, canOpenDoc, isMetaPending };
+        return { filteredDocuments, openChat, resumeDoc, deleteDoc, retagDoc, parseKeywords, tMetadata, t: translate, getLang, canOpenDoc, isMetaPending };
     }
 };
 
 // Image 3: Graph View
 const GraphView = {
     template: `
-        <div style="height: calc(100vh - 200px); min-height: 500px; width: 100%; display: flex; align-items:center; justify-content:center;">
-            <div id="echarts-container" style="width:100%; height:100%;"></div>
+        <div style="display:flex;height:100%;width:100%;overflow:hidden;">
+            <div style="width:260px;flex-shrink:0;border-right:1px solid var(--header-border);overflow:auto;padding:12px;">
+                <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px;">{{ t('auto.lineage_pick') }}</div>
+                <div v-for="doc in docs" :key="doc.id" @click="selectDoc(doc)"
+                     :style="{padding:'8px',borderRadius:'8px',cursor:'pointer',marginBottom:'6px',background: selected && selected.id===doc.id ? 'var(--header-bg)' : 'transparent'}">
+                    <div style="font-size:13px;font-weight:600;">{{ doc.zh_title || doc.title }}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">{{ doc.year || '' }} {{ doc.venue || '' }}</div>
+                </div>
+            </div>
+            <div style="flex:1;overflow:auto;padding:18px;" v-if="lineage">
+                <h3 style="margin-top:0;">{{ lineage.document.zh_title || lineage.document.title }}</h3>
+                <div style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">
+                    {{ (lineage.document.authors||[]).join(', ') }} · {{ lineage.document.year }} · {{ lineage.document.venue }}
+                    <span v-if="lineage.document.ccf_partition"> · CCF {{ lineage.document.ccf_partition }}</span>
+                </div>
+                <p v-if="t('auto.lineage_hint')" style="color:var(--text-muted);font-size:12px;margin:0 0 16px;">{{ t('auto.lineage_hint') }}</p>
+                <div style="display:grid;grid-template-columns:minmax(260px,0.95fr) minmax(360px,1.15fr);gap:24px;">
+                    <div>
+                        <h4>{{ t('auto.lineage_related') }}</h4>
+                        <div v-if="!(lineage.related||[]).length" style="color:var(--text-muted);">{{ t('auto.lineage_empty') }}</div>
+                        <div v-for="r in lineage.related" :key="'rel'+r.id" class="doc-list-item" style="cursor:pointer;margin-bottom:8px;" @click="selectById(r.id)">
+                            <div class="doc-title">{{ r.zh_title || r.title }}</div>
+                            <div style="font-size:12px;color:var(--text-muted);">{{ formatReasons(r.reasons) }}</div>
+                        </div>
+                        <h4>{{ t('auto.lineage_refs') }}</h4>
+                        <div v-for="(r,i) in lineage.references" :key="'ref'+i" style="padding:8px 0;border-bottom:1px solid var(--header-border);font-size:13px;">
+                            <div>{{ r.title }} <span v-if="r.ccf" style="color:#e74c3c;">CCF {{ r.ccf }}</span></div>
+                            <div style="color:var(--text-muted);font-size:12px;">
+                                {{ r.year }} <span v-if="r.in_library">· {{ t('auto.lineage_in_lib') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4>{{ t('auto.lineage_dossier') }}</h4>
+                        <div v-if="lineage.dossier && lineage.dossier.hero_figure" style="margin-bottom:16px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">{{ t('auto.lineage_hero_fig') }}</div>
+                            <img :src="lineage.dossier.hero_figure.url" style="max-width:100%;border-radius:8px;border:1px solid var(--header-border);background:#0b0b10;">
+                            <div v-if="lineage.dossier.hero_figure.caption" style="font-size:12px;color:var(--text-muted);margin-top:6px;">{{ lineage.dossier.hero_figure.caption }}</div>
+                        </div>
+                        <div v-if="lineage.dossier && lineage.dossier.arch_figure && (!lineage.dossier.hero_figure || lineage.dossier.arch_figure.filename !== lineage.dossier.hero_figure.filename)" style="margin-bottom:16px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">{{ t('auto.lineage_arch_fig') }}</div>
+                            <img :src="lineage.dossier.arch_figure.url" style="max-width:100%;border-radius:8px;border:1px solid var(--header-border);background:#0b0b10;">
+                            <div v-if="lineage.dossier.arch_figure.caption" style="font-size:12px;color:var(--text-muted);margin-top:6px;">{{ lineage.dossier.arch_figure.caption }}</div>
+                        </div>
+                        <div v-else-if="lineage.dossier && lineage.dossier.arch_figure && lineage.dossier.hero_figure && lineage.dossier.arch_figure.filename === lineage.dossier.hero_figure.filename" style="font-size:12px;color:var(--text-muted);margin:-8px 0 16px;">{{ t('auto.lineage_arch_same') }}</div>
+                        <h4>{{ t('auto.lineage_ai_abs') }}</h4>
+                        <div style="font-size:14px;line-height:1.7;white-space:pre-wrap;margin-bottom:18px;">{{ (lineage.dossier && lineage.dossier.ai_abstract) || lineage.document.abstract || t('auto.lineage_no_abs') }}</div>
+                        <h4>{{ t('auto.lineage_qa') }}</h4>
+                        <div v-if="!(lineage.dossier && lineage.dossier.qa && lineage.dossier.qa.length)" style="color:var(--text-muted);">{{ t('auto.lineage_no_qa') }}</div>
+                        <div v-for="(item,i) in ((lineage.dossier && lineage.dossier.qa) || [])" :key="'qa'+i" style="margin-bottom:14px;padding:12px;border:1px solid var(--header-border);border-radius:10px;background:var(--card-bg);">
+                            <div style="font-size:13px;font-weight:600;margin-bottom:6px;">{{ item.title }}</div>
+                            <div v-if="item.question" style="font-size:12px;color:var(--text-muted);margin-bottom:8px;white-space:pre-wrap;">{{ item.question }}</div>
+                            <div style="font-size:13px;line-height:1.65;white-space:pre-wrap;max-height:280px;overflow:auto;">{{ item.answer }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div v-else style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);">{{ t('auto.lineage_pick') }}</div>
         </div>
     `,
-    async mounted() {
-        const chartDom = document.getElementById('echarts-container');
-        if(!chartDom) return;
-        const myChart = echarts.init(chartDom);
-        
-        const rootStyle = getComputedStyle(document.body);
-        const primaryColor = rootStyle.getPropertyValue('--primary-accent').trim() || '#3D71D9';
-        const bg = rootStyle.getPropertyValue('--bg-color').trim() || '#282C34';
-        const textColor = rootStyle.getPropertyValue('--text-color').trim() || '#ABB2BF';
-        
-        // Fetch Real Graph Data
-        const res = await fetch('/api/library/graph');
-        const data = await res.json();
-        
-        // Customize nodes based on whether they are documents (White rectangles with cover) or tags (Blue strips)
-        data.nodes.forEach(node => {
-            if (node.category === 0) {
-                // Document: Use Circle without white box to not overlap text
-                node.symbol = 'circle';
-                node.symbolSize = 16;
-                node.itemStyle = { color: '#ffffff', borderColor: '#888', borderWidth: 2 };
-            } else {
-                // Keyword Tag: Strip shape
-                node.symbol = 'roundRect';
-                node.symbolSize = [80, 26];
-                node.itemStyle = { color: primaryColor, borderRadius: 13 };
-                node.label = { show: true, color: '#fff', fontSize: 12, position: 'inside', formatter: '{b}' };
-            }
-        });
-
-        const option = {
-            tooltip: {},
-            series: [{
-                type: 'graph',
-                layout: 'force',
-                roam: true,
-                force: { repulsion: 800, edgeLength: 100, gravity: 0.1 },
-                data: data.nodes,
-                links: data.links,
-                label: {
-                    show: true,
-                    position: 'bottom',
-                    formatter: (params) => {
-                        return params.data.category === 0 ? params.data.name : '';
-                    },
-                    color: textColor,
-                    fontSize: 14
-                },
-                lineStyle: { color: '#888', width: 2, curveness: 0.1 }
-            }]
+    setup() {
+        const docs = ref([]);
+        const selected = ref(null);
+        const lineage = ref(null);
+        const loadDocs = async () => {
+            const res = await fetch('/api/library/documents');
+            docs.value = await res.json();
         };
-        myChart.setOption(option);
-        window.addEventListener('resize', () => myChart.resize());
+        const selectDoc = async (doc) => {
+            selected.value = doc;
+            const res = await fetch('/api/library/documents/' + doc.id + '/lineage');
+            lineage.value = await res.json();
+        };
+        const selectById = (id) => {
+            const d = docs.value.find(x => x.id === id);
+            if (d) selectDoc(d);
+        };
+        const formatReasons = (reasons) => {
+            const map = {
+                shared_keywords: translate('auto.reason_keywords'),
+                same_field: translate('auto.reason_field'),
+                same_author: translate('auto.reason_author'),
+            };
+            return (reasons || []).map(r => map[r] || r).join(' · ');
+        };
+        onMounted(loadDocs);
+        return { docs, selected, lineage, selectDoc, selectById, formatReasons, t: translate };
     }
 };
 
@@ -1052,6 +1119,7 @@ const SearchView = {
                         </div>
                         <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">
                             <span class="tag-badge" style="background: var(--header-bg); border: 1px solid var(--primary-accent); color: var(--primary-accent);" v-if="doc.venue && doc.venue !== 'Unknown'">{{ doc.venue }}</span>
+                            <span class="tag-badge" style="background: rgba(148, 163, 184, 0.2); color: #cbd5e1;" v-if="doc.year">{{ doc.year }}</span>
                             <span class="tag-badge" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71;" v-if="doc.paper_type">{{ doc.paper_type }}</span>
                             <span class="tag-badge" style="background: rgba(231, 76, 60, 0.2); color: #e74c3c;" v-if="doc.ccf_partition">CCF {{ doc.ccf_partition }}</span>
                             <span class="tag-badge" style="background: rgba(155, 89, 182, 0.2); color: #9b59b6;" v-if="doc.jcr_partition">JCR {{ doc.jcr_partition }}</span>
@@ -1268,11 +1336,15 @@ const PromptsView = {
             const name = window.prompt(translate('prompt.new_dialog'));
             if (!name) return;
             const initContent = '## ' + name + '\n### Section 1\n';
-            await fetch('/api/prompts/' + encodeURIComponent(name) + '?lang=' + currentLang.value, {
+            const res = await fetch('/api/prompts/' + encodeURIComponent(name) + '?lang=' + currentLang.value, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({content: initContent})
             });
+            if (!res.ok) {
+                alert(translate('prompt.save_fail') || ('HTTP ' + res.status));
+                return;
+            }
             await loadList();
             loadPrompt(name);
         };
@@ -1290,11 +1362,15 @@ const PromptsView = {
         const savePrompt = async () => {
             if (!currentPrompt.value) return;
             const content = reconstructMarkdown();
-            await fetch('/api/prompts/' + encodeURIComponent(currentPrompt.value) + '?lang=' + currentLang.value, {
+            const res = await fetch('/api/prompts/' + encodeURIComponent(currentPrompt.value) + '?lang=' + currentLang.value, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({content: content})
             });
+            if (!res.ok) {
+                alert(translate('prompt.save_fail') || ('HTTP ' + res.status));
+                return;
+            }
             alert(translate('prompt.save_ok'));
             loadList();
         };
@@ -1323,8 +1399,8 @@ const PromptsView = {
         onMounted(async () => {
             await loadList();
             if (promptNames.value.length > 0) {
-                const def = promptNames.value.find(p => p.includes('人工智能')) || promptNames.value[0];
-                loadPrompt(def);
+                const def = promptNames.value.find(p => (p.id || '').includes('提示词汇总') || (p.id || '').includes('人工智能')) || promptNames.value[0];
+                loadPrompt(def.id || def);
             }
         });
 
@@ -1453,7 +1529,7 @@ const app = createApp({
             try {
                 const res = await fetch('/api/config');
                 const cfg = await res.json();
-                document.getElementById('parse_api_url').value = cfg.parse_api_url || 'https://generativelanguage.googleapis.com/v1beta/openai/';
+                document.getElementById('parse_api_url').value = cfg.parse_api_url || 'https://opencode.ai/zen/go/v1';
                 
                 const keyList = document.getElementById('parse_api_key_list');
                 if (keyList) {
@@ -1464,7 +1540,11 @@ const app = createApp({
                     parseKeys.forEach(k => window.addParseKeyInput(k.trim()));
                 }
 
-                document.getElementById('parse_model').value = cfg.parse_model || 'gemini-2.5-flash';
+                document.getElementById('parse_model').value = cfg.parse_model || 'qwen3.7-plus';
+                const textEl = document.getElementById('text_model');
+                if (textEl) {
+                    textEl.value = cfg.translate_model || cfg.chat_model || cfg.parse_model || 'qwen3.7-plus';
+                }
             } catch (e) {
                 console.error("加载配置失败", e);
             }
@@ -1483,6 +1563,8 @@ const app = createApp({
                 const parseKeysArray = Array.from(keyInputs).map(inp => inp.value.trim()).filter(v => v);
                 const apiUrl = document.getElementById('parse_api_url').value.trim();
                 const modelName = document.getElementById('parse_model').value.trim();
+                const textRaw = (document.getElementById('text_model') || {}).value || '';
+                const textModel = textRaw.trim() || modelName;
 
                 const payload = {
                     parse_api_url: apiUrl,
@@ -1491,7 +1573,7 @@ const app = createApp({
                     
                     chat_api_url: apiUrl,
                     chat_api_key: parseKeysArray,
-                    chat_model: modelName,
+                    chat_model: textModel,
                     
                     paper_api_url: apiUrl,
                     paper_api_key: parseKeysArray,
@@ -1499,11 +1581,11 @@ const app = createApp({
                     
                     annotator_api_url: apiUrl,
                     annotator_api_key: parseKeysArray,
-                    annotator_model: modelName,
+                    annotator_model: textModel,
                     
                     translate_api_url: apiUrl,
                     translate_api_key: parseKeysArray,
-                    translate_model: modelName
+                    translate_model: textModel
                 };
                 await fetch('/api/config', {
                     method: 'POST',

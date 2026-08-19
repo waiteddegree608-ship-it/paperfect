@@ -74,7 +74,7 @@ def fetch_s2_metadata(identifier: str):
         if identifier.startswith("ARXIV:"):
             clean_id = re.sub(r'v\d+$', '', identifier)
             
-        url = f"https://api.semanticscholar.org/graph/v1/paper/{clean_id}?fields=title,venue,abstract,year"
+        url = f"https://api.semanticscholar.org/graph/v1/paper/{clean_id}?fields=title,venue,abstract,year,authors,externalIds,publicationVenue,publicationDate"
         # 增加重试次数和等待时间应对 429
         for attempt in range(3):
             response = requests.get(url, timeout=5)
@@ -95,8 +95,12 @@ def fetch_crossref_metadata_by_title(title: str):
     try:
         import urllib.parse
         q = urllib.parse.quote(title)
-        url = f"https://api.crossref.org/works?query.title={q}&select=title,container-title,event&rows=1"
-        response = requests.get(url, timeout=5)
+        url = f"https://api.crossref.org/works?query.title={q}&select=title,container-title,event,published-print,published-online,issued&rows=1"
+        response = requests.get(
+            url,
+            timeout=8,
+            headers={"User-Agent": "Paperfect/1.0 (mailto:paperfect@local)"},
+        )
         if response.status_code == 200:
             data = response.json()
             items = data.get("message", {}).get("items", [])
@@ -118,7 +122,13 @@ def fetch_crossref_metadata_by_title(title: str):
                     venue = item["container-title"][0]
                 
                 if venue:
-                    return {"venue": venue}
+                    year = ""
+                    for key in ("published-print", "published-online", "issued"):
+                        parts = ((item.get(key) or {}).get("date-parts") or [[]])
+                        if parts and parts[0]:
+                            year = str(parts[0][0])
+                            break
+                    return {"venue": venue, "year": year}
     except Exception as e:
         print(f"Crossref API title search error for {title}: {e}")
     return None
@@ -131,7 +141,7 @@ def extract_local_fallback_abstract(pdf_path):
             text += doc[i].get_text("text")
         doc.close()
         
-        match = re.search(r'(?i)\babstract\b(.*)', text, re.DOTALL)
+        match = re.search(r'(?i)\b(?:abstract|摘要)\b(.*)', text, re.DOTALL)
         if match:
             abstract_text = match.group(1).strip()
             intro_match = re.search(r'(?i)\b(?:1\.?\s+)?introduction\b', abstract_text)
@@ -144,14 +154,214 @@ def extract_local_fallback_abstract(pdf_path):
         pass
     return ""
 
+def _extract_json_object(text: str):
+    if not text:
+        raise ValueError("empty model output")
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"<think>[\s\S]*", "", cleaned).strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        return json.loads(cleaned.strip())
+    except Exception:
+        pass
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError("no JSON object in model output")
+    depth = 0
+    in_str = False
+    esc = False
+    for i, ch in enumerate(cleaned[start:], start):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(cleaned[start : i + 1])
+    raise ValueError("unterminated JSON object")
+
+
+def apply_analysis_to_document(db, doc, analysis):
+    """Write analyzer result onto a Document. Metadata is committed even if tags collide."""
+    from backend.models.database import Tag
+    if not doc or not analysis:
+        return
+    en_title = analysis.get("en_title")
+    if en_title and en_title != "Unknown Title":
+        doc.title = en_title
+    if analysis.get("zh_title"):
+        doc.zh_title = analysis.get("zh_title")
+    if analysis.get("venue"):
+        doc.venue = analysis.get("venue")
+    if analysis.get("paper_type"):
+        doc.paper_type = analysis.get("paper_type")
+    if analysis.get("jcr_partition") is not None:
+        doc.jcr_partition = analysis.get("jcr_partition") or ""
+    if analysis.get("ccf_partition") is not None:
+        doc.ccf_partition = analysis.get("ccf_partition") or ""
+    if analysis.get("core_type") is not None:
+        doc.core_type = analysis.get("core_type") or ""
+    f_val = analysis.get("research_field", "")
+    if f_val:
+        doc.research_field = json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val)
+    d_val = analysis.get("research_direction", "")
+    if d_val:
+        doc.research_direction = json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val)
+    if analysis.get("abstract"):
+        doc.abstract = analysis.get("abstract")
+    if analysis.get("en_abstract"):
+        doc.en_abstract = analysis.get("en_abstract")
+    if analysis.get("en_keywords") is not None:
+        doc.en_keywords = json.dumps(analysis.get("en_keywords") or [], ensure_ascii=False)
+    if analysis.get("authors") is not None:
+        doc.authors = json.dumps(analysis.get("authors") or [], ensure_ascii=False)
+    if analysis.get("year"):
+        doc.year = str(analysis.get("year"))
+    if analysis.get("doi"):
+        doc.doi = analysis.get("doi")
+    db.commit()
+
+    seen = set()
+    for kw in analysis.get("zh_keywords") or []:
+        kw = (kw or "").strip()
+        if not kw or kw in seen:
+            continue
+        seen.add(kw)
+        tag = db.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
+        if not tag:
+            tag = Tag(name=kw, category="Keywords")
+            db.add(tag)
+            db.flush()
+        if tag not in doc.tags:
+            doc.tags.append(tag)
+    try:
+        db.commit()
+    except Exception as e:
+        print(f"[Analyze] tag attach skipped ({e})", flush=True)
+        db.rollback()
+
+
+def _weak_venue(name: str) -> bool:
+    s = (name or "").strip().lower()
+    return (not s) or s in ("unknown", "arxiv", "preprint", "arxiv preprint") or "arxiv.org" in s
+
+
+def _year_from_text(text: str) -> str:
+    years = [int(y) for y in re.findall(r"\b((?:19|20)\d{2})\b", text or "")]
+    years = [y for y in years if 1990 <= y <= 2035]
+    if not years:
+        return ""
+    return str(max(years))
+
+
+def _enrich_publication_meta(result: dict, page_text: str, identifier, s2_metadata, arxiv_metadata):
+    """Prefer conference/journal + year over a bare 'arxiv' label; fill CCF."""
+    from backend.services.venue_matcher import match_venue, scan_ccf_in_text
+
+    candidates = []
+    if s2_metadata:
+        pv = s2_metadata.get("publicationVenue") or {}
+        if isinstance(pv, dict) and pv.get("name"):
+            candidates.append(pv.get("name"))
+        if s2_metadata.get("venue"):
+            candidates.append(s2_metadata.get("venue"))
+        if s2_metadata.get("year") and not result.get("year"):
+            result["year"] = str(s2_metadata.get("year"))
+        names = []
+        for a in s2_metadata.get("authors") or []:
+            if isinstance(a, dict) and a.get("name"):
+                names.append(a["name"])
+            elif isinstance(a, str) and a.strip():
+                names.append(a.strip())
+        if names and not result.get("authors"):
+            result["authors"] = names
+        if s2_metadata.get("title"):
+            cur = (result.get("en_title") or "").strip()
+            if (not cur) or cur.lower().endswith(".pdf") or len(cur) < 16:
+                result["en_title"] = s2_metadata["title"]
+        if s2_metadata.get("abstract") and not result.get("en_abstract"):
+            result["en_abstract"] = s2_metadata["abstract"]
+    if arxiv_metadata:
+        if arxiv_metadata.get("year") and not result.get("year"):
+            result["year"] = str(arxiv_metadata["year"])
+        if arxiv_metadata.get("venue_hints"):
+            candidates.append(arxiv_metadata["venue_hints"])
+        if arxiv_metadata.get("title"):
+            cur = (result.get("en_title") or "").strip()
+            if (not cur) or cur.lower().endswith(".pdf") or len(cur) < 16:
+                result["en_title"] = arxiv_metadata["title"]
+        if arxiv_metadata.get("abstract") and not result.get("en_abstract"):
+            result["en_abstract"] = arxiv_metadata["abstract"]
+    if result.get("venue"):
+        candidates.append(result.get("venue"))
+    candidates.append((page_text or "")[:3000])
+
+    blob = " \n ".join(str(c) for c in candidates if c)
+    ccf, jcr, acr = scan_ccf_in_text(blob)
+    if not acr:
+        for c in candidates:
+            ccf, jcr, acr = match_venue(str(c or ""))
+            if acr:
+                break
+
+    if _weak_venue(result.get("venue") or "") and result.get("en_title"):
+        xref = fetch_crossref_metadata_by_title(result["en_title"])
+        if xref:
+            if xref.get("year") and not result.get("year"):
+                result["year"] = str(xref["year"])
+            xv = xref.get("venue") or ""
+            if xv and not _weak_venue(xv):
+                candidates.insert(0, xv)
+                c2, j2, a2 = scan_ccf_in_text(xv) if not acr else (ccf, jcr, acr)
+                if a2:
+                    ccf, jcr, acr = c2, j2, a2
+                elif not acr:
+                    result["venue"] = xv
+
+    if not result.get("year"):
+        result["year"] = _year_from_text(blob) or _year_from_text(page_text or "")
+
+    result["core_type"] = result.get("core_type") or ""
+    if acr:
+        year = (result.get("year") or "").strip()
+        result["venue"] = f"{acr} {year}".strip() if year else acr
+        result["ccf_partition"] = ccf
+        result["jcr_partition"] = jcr
+        result["matched_venue"] = acr
+        print(f"[Venue] resolved → {result['venue']} CCF={ccf or '-'} JCR={jcr or '-'}", flush=True)
+    else:
+        if _weak_venue(result.get("venue") or ""):
+            result["venue"] = "arXiv preprint" if (identifier or "").startswith("ARXIV:") else (result.get("venue") or "Unknown")
+        ccf, jcr, matched = match_venue(result.get("venue") or "")
+        result["ccf_partition"] = ccf
+        result["jcr_partition"] = jcr
+        result["matched_venue"] = matched
+        if matched:
+            print(f"[Venue] '{result.get('venue')}' → {matched} CCF={ccf or '-'}", flush=True)
+
+
 def analyze_paper(pdf_path: str):
     """
     Extract title, venue, abstract, and keywords from the first few pages of a PDF paper.
     """
     config = load_config()
-    api_key = config.get("paper_api_key") or config.get("chat_api_key")
-    base_url = config.get("paper_api_url") or config.get("chat_api_url")
-    model = config.get("paper_model") or config.get("chat_model")
+    from backend.services.model_pick import pick_fast_text_model, extra_body_for_model
+    api_key = config.get("paper_api_key") or config.get("chat_api_key") or config.get("parse_api_key")
+    if isinstance(api_key, list):
+        api_key = api_key[0] if api_key else ""
+    base_url = config.get("paper_api_url") or config.get("chat_api_url") or config.get("parse_api_url")
+    model = pick_fast_text_model(config)
     
     local_abstract = extract_local_fallback_abstract(pdf_path)
     title_fallback = os.path.basename(pdf_path).replace(".pdf", "")
@@ -186,6 +396,7 @@ def analyze_paper(pdf_path: str):
         identifier = extract_identifier(text)
         s2_metadata = None
         s2_context_str = ""
+        arxiv_metadata = None
         
         if identifier:
             print(f"Identified paper ID: {identifier}, querying APIs...")
@@ -214,7 +425,8 @@ def analyze_paper(pdf_path: str):
             if s2_context_str:
                 s2_context_str += "\nIMPORTANT INSTRUCTION: Use the above Prior Knowledge for `en_title`, `venue`, and `en_abstract` where possible. Specially, pay attention to 'Venue Hints' or 'Venue' from Prior Knowledge to extract the correct journal or conference name."
                 
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        print(f"[Analyze] model={model} url={base_url}", flush=True)
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0)
         
         prompt = f"""
         You are an academic paper analyzer. Analyze the following text extracted from the beginning of a paper.
@@ -233,6 +445,9 @@ def analyze_paper(pdf_path: str):
         8. Based on the abstract and title, determine if the paper is a review paper or a research paper. Output "综述" or "研究" in `paper_type`.
         9. Determine the macro research field as a JSON object with "zh" (Simplified Chinese) and "en" (English) keys (e.g. {{"zh": "计算机视觉", "en": "Computer Vision"}}).
         10. Determine the specific research direction as a JSON object with "zh" (Simplified Chinese) and "en" (English) keys (e.g. {{"zh": "3D服装生成", "en": "3D Garment Generation"}}).
+        11. Extract author names into `authors` (array of strings, original order, family-name last if possible). Use Prior Knowledge if provided.
+        12. Extract publication year as `year` (4-digit string). Use Prior Knowledge if provided.
+        13. Extract DOI as `doi` if present (e.g. "10.xxxx/..."), else empty string.
         
         Output ONLY raw JSON format (do not use markdown blocks like ```json). It must parse successfully using json.loads().
         
@@ -246,29 +461,40 @@ def analyze_paper(pdf_path: str):
             "en_keywords": ["keyword1", "keyword2"],
             "zh_keywords": ["中文关键词1", "中文关键词2"],
             "research_field": {{"zh": "宏观研究领域", "en": "Macro research field"}},
-            "research_direction": {{"zh": "微观研究方向", "en": "Micro research direction"}}
+            "research_direction": {{"zh": "微观研究方向", "en": "Micro research direction"}},
+            "authors": ["Alice Example", "Bob Example"],
+            "year": "2024",
+            "doi": ""
         }}
         
         Text:
         {text[:4000]}
         """
         
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        content = response.choices[0].message.content.strip()
-        
-        # Clean markdown code blocks if the model ignored instructions
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-            
-        result = json.loads(content.strip())
+        extra = extra_body_for_model(model)
+        content = ""
+        result = None
+        last_err = None
+        for attempt in range(2):
+            kwargs = dict(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            if extra:
+                kwargs["extra_body"] = extra
+            try:
+                response = client.chat.completions.create(**kwargs)
+                content = (response.choices[0].message.content or "").strip()
+                result = _extract_json_object(content)
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[Analyze] JSON/LLM attempt {attempt+1} failed: {e}", flush=True)
+                prompt = prompt + "\n\nReturn ONLY a single JSON object. No markdown."
+        if result is None:
+            raise last_err or ValueError("analyze_paper produced no JSON")
         
         # Apply Keyword Dictionary Mapping for Chinese keywords
         dict_path = os.path.join(get_base_dir(), "data", "keyword_dict.json")
@@ -298,77 +524,27 @@ def analyze_paper(pdf_path: str):
         result["zh_keywords"] = list(set(mapped_keywords))
         
         # Ensure correct keys
-        for k in ["en_title", "zh_title", "venue", "paper_type", "en_abstract", "abstract", "research_field", "research_direction"]:
+        for k in ["en_title", "zh_title", "venue", "paper_type", "en_abstract", "abstract", "research_field", "research_direction", "year", "doi"]:
             if k not in result:
                 result[k] = ""
-        for k in ["en_keywords", "zh_keywords", "keywords"]:
+        for k in ["en_keywords", "zh_keywords", "keywords", "authors"]:
             if k not in result:
                 result[k] = []
-                
-        # 2. 如果之前获取的信息或 LLM 仍然输出了 arxiv 或 unknown，执行标题兜底查询
-        if result.get("en_title") and result.get("en_title") != "Unknown Title":
-            ai_venue = result.get("venue", "").lower()
-            if not ai_venue or "arxiv" in ai_venue or "unknown" in ai_venue:
-                print(f"Fallback: Searching Crossref by title: {result['en_title']}")
-                s2_search_res = fetch_crossref_metadata_by_title(result["en_title"])
-                if s2_search_res:
-                    s2_venue = s2_search_res.get("venue")
-                    if s2_venue and "arxiv" not in s2_venue.lower() and "unknown" not in s2_venue.lower():
-                        print(f"  -> Found better venue via title search: {s2_venue}")
-                        result["venue"] = s2_venue
-                        # 如果需要，这里也可以进一步覆盖英文摘要等
-                
-        # Venue Dictionary Matching
-        venue_dict_path = os.path.join(get_base_dir(), "data", "venue_dict.json")
-        result["ccf_partition"] = ""
-        result["jcr_partition"] = ""
-        result["core_type"] = ""
-        
-        if os.path.exists(venue_dict_path):
-            with open(venue_dict_path, "r", encoding="utf-8") as f:
-                try:
-                    v_dict = json.load(f)
-                    ai_venue = result["venue"].strip()
-                    matched = None
-                    
-                    ai_venue_clean = ai_venue.lower()
-                    words = set(re.findall(r'\b[A-Za-z]+\b', ai_venue))
-                    
-                    # 1. Exact acronym match (highest priority)
-                    for k, v in v_dict.items():
-                        if k in words and k.upper() == k and len(k) > 1:
-                            matched = v
-                            break
-                            
-                    # 2. Fuzzy and proportional substring match
-                    if not matched:
-                        best_match = None
-                        best_score = 0
-                        for k, v in v_dict.items():
-                            k_lower = k.lower()
-                            score = difflib.SequenceMatcher(None, ai_venue_clean, k_lower).ratio()
-                            
-                            # if one is a substring of another, weight the score by proportional coverage
-                            if k_lower in ai_venue_clean:
-                                score = max(score, len(k_lower) / max(len(ai_venue_clean), 1))
-                            elif ai_venue_clean in k_lower:
-                                score = max(score, len(ai_venue_clean) / max(len(k_lower), 1))
-                                
-                            if score > best_score:
-                                best_score = score
-                                best_match = v
-                                
-                        if best_score > 0.55:
-                            matched = best_match
-                        
-                    if matched:
-                        result["ccf_partition"] = matched.get("ccf", "")
-                        result["jcr_partition"] = matched.get("jcr", "")
-                        result["core_type"] = matched.get("core", "")
-                except Exception as e:
-                    print(f"Venue dict error: {e}")
-                
+        if isinstance(result.get("authors"), str):
+            result["authors"] = [a.strip() for a in re.split(r"[,;]| and ", result["authors"]) if a.strip()]
+        if identifier and identifier.startswith("DOI:"):
+            result["doi"] = result.get("doi") or identifier.replace("DOI:", "").strip()
+
+        _enrich_publication_meta(result, text, identifier, s2_metadata, arxiv_metadata)
         return result
     except Exception as e:
         print(f"Error analyzing paper {pdf_path}: {e}")
+        try:
+            from backend.services.venue_matcher import match_venue
+            ccf, jcr, matched = match_venue(fallback_result.get("venue") or "")
+            fallback_result["ccf_partition"] = ccf
+            fallback_result["jcr_partition"] = jcr
+            fallback_result["matched_venue"] = matched
+        except Exception:
+            pass
         return fallback_result

@@ -29,11 +29,14 @@ API_KEYS = get_keys_list()
 import random
 API_KEY = random.choice(API_KEYS) if API_KEYS else ""
 
-BASE_URL = cfg.get("annotator_api_url") or cfg.get("chat_api_url") or "https://api.siliconflow.cn/v1"
-if not BASE_URL: BASE_URL = "https://api.siliconflow.cn/v1"
+BASE_URL = cfg.get("annotator_api_url") or cfg.get("chat_api_url") or "https://opencode.ai/zen/go/v1"
+if not BASE_URL: BASE_URL = "https://opencode.ai/zen/go/v1"
 
-MODEL_NAME = cfg.get("annotator_model") or cfg.get("chat_model") or "gemini-2.5-flash"
-if not MODEL_NAME: MODEL_NAME = "gemini-2.5-flash"
+from backend.services.model_pick import pick_fast_text_model, extra_body_for_model
+
+MODEL_NAME = pick_fast_text_model(cfg)
+if not MODEL_NAME:
+    MODEL_NAME = "gemini-2.5-flash"
 
 # ================= 预设颜色 =================
 COLOR_MAP = {
@@ -93,7 +96,126 @@ def _extract_json_array(text):
     return None
 
 
+def _kb_excerpt(md_content, max_chars=4000):
+    if not md_content:
+        return ""
+    if len(md_content) <= max_chars:
+        return md_content
+    return md_content[:max_chars] + "\n\n...(report truncated for this page)..."
+
+
+def _looks_refs_page(text: str, page_num: int, page_count: int) -> bool:
+    head = (text or "")[:700]
+    if re.search(r"^\s*(references|bibliography|参考文献)\s*$", head, re.I | re.M):
+        return True
+    if page_num >= max(8, int(page_count * 0.72)) and len(re.findall(r"\[\d{1,3}\]", text or "")) >= 12:
+        return True
+    return False
+
+
+def _chunk(items, size):
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def get_ai_annotations_for_pages(client, batch, md_content, lang="zh", max_retries=1):
+    """One request for several pages. Returns {page_num_1based: [anns]}."""
+    md_content = _kb_excerpt(md_content)
+    pages_blob = []
+    for pno, ptext in batch:
+        pages_blob.append(f"### PAGE {pno}\n{(ptext or '')[:1600]}")
+    joined = "\n\n".join(pages_blob)
+    if lang == "en":
+        sys_prompt = (
+            "Annotate an academic PDF. Use the short report. "
+            "For EACH page output 1-3 anchors. target_text = exact 5-12 words from that page. "
+            "Types: highlight/yellow = contribution; squiggly/red = limitation; "
+            "underline/blue = method/metric; sticky_note/green = summary. "
+            "Output ONLY JSON: {\"pages\":{\"3\":[{\"target_text\":\"...\",\"annotation_type\":\"highlight\","
+            "\"color\":\"yellow\",\"note_content\":\"...\"}]}}"
+        )
+        user_msg = f"Report:\n{md_content}\n\nPages:\n{joined}"
+    else:
+        sys_prompt = (
+            "给学术PDF做页内批注。结合短报告，每一页找1-3处锚点。"
+            "target_text 必须是该页原文连续5-12个英文词。"
+            "类型：highlight/yellow=贡献；squiggly/red=缺陷；underline/blue=方法指标；sticky_note/green=总结。"
+            "只输出JSON：{\"pages\":{\"3\":[{\"target_text\":\"...\",\"annotation_type\":\"highlight\","
+            "\"color\":\"yellow\",\"note_content\":\"中文点评\"}]}}"
+        )
+        user_msg = f"报告：\n{md_content}\n\n各页：\n{joined}"
+
+    extra = extra_body_for_model(MODEL_NAME)
+    for attempt in range(max_retries + 1):
+        try:
+            print(f"[{MODEL_NAME}] batch pages {[p for p, _ in batch]} try={attempt}", flush=True)
+            kwargs = dict(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.2,
+                max_tokens=1400,
+            )
+            if extra:
+                kwargs["extra_body"] = extra
+            response = client.chat.completions.create(**kwargs)
+            reply = (response.choices[0].message.content or "").strip()
+            reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.DOTALL).strip()
+            data = None
+            try:
+                data = json.loads(reply)
+            except Exception:
+                m = re.search(r"\{[\s\S]*\}", reply)
+                if m:
+                    try:
+                        data = json.loads(m.group(0))
+                    except Exception:
+                        data = None
+            out = {}
+            pages = (data or {}).get("pages") if isinstance(data, dict) else None
+            if isinstance(pages, dict):
+                for k, v in pages.items():
+                    try:
+                        out[int(k)] = v if isinstance(v, list) else []
+                    except Exception:
+                        continue
+            if out:
+                return out
+            arr = _extract_json_array(reply)
+            if arr:
+                out[batch[0][0]] = arr
+                return out
+        except Exception as e:
+            print(f"  [ERROR] annotate batch failed: {e}", flush=True)
+            if attempt < max_retries:
+                _rate_limit_sleep(e)
+                continue
+    return {}
+
+
+def _rate_limit_sleep(err):
+    import time
+    err_str = str(err)
+    sleep_time = 4.0
+    match = re.search(r'[Pp]lease retry in ([\d\.]+)s', err_str)
+    if match:
+        try:
+            sleep_time = float(match.group(1)) + 1.0
+        except ValueError:
+            pass
+    else:
+        match_after = re.search(r'[Pp]lease retry after (\d+)s', err_str)
+        if match_after:
+            try:
+                sleep_time = float(match_after.group(1)) + 1.0
+            except ValueError:
+                pass
+    time.sleep(sleep_time)
+
+
 def get_ai_annotations_for_page(client, page_text, md_content, page_num, max_retries=2, lang="zh"):
+    md_content = _kb_excerpt(md_content)
     if lang == "en":
         sys_prompt = f"""
 # Role
@@ -163,11 +285,13 @@ Carefully read the analysis report and strictly compare it with the current page
         try:
             retry_label = f" (retry {attempt})" if attempt > 0 else ""
             print(f"[{MODEL_NAME}] Requesting annotations for page {page_num}...{retry_label}", flush=True)
+            extra = extra_body_for_model(MODEL_NAME)
             response = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
-                temperature=0.2, 
+                temperature=0.2,
                 max_tokens=2048,
+                **({"extra_body": extra} if extra else {}),
             )
             
             reply = response.choices[0].message.content.strip()
@@ -190,28 +314,7 @@ Carefully read the analysis report and strictly compare it with the current page
                     import random
                     client.api_key = random.choice(API_KEYS)
                     print(f"  [Rotated Key] Rotated API key to: ...{client.api_key[-6:]}", flush=True)
-                
-                # Parse retry wait time from error message if available
-                sleep_time = 8.0
-                err_str = str(e)
-                import re as _re
-                match = _re.search(r'[Pp]lease retry in ([\d\.]+)s', err_str)
-                if match:
-                    try:
-                        sleep_time = float(match.group(1)) + 1.5
-                        print(f"  [Rate Limit] Dynamically waiting for {sleep_time:.2f} seconds...", flush=True)
-                    except ValueError:
-                        pass
-                else:
-                    match_after = _re.search(r'[Pp]lease retry after (\d+)s', err_str)
-                    if match_after:
-                        try:
-                            sleep_time = float(match_after.group(1)) + 1.5
-                            print(f"  [Rate Limit] Dynamically waiting for {sleep_time:.2f} seconds...", flush=True)
-                        except ValueError:
-                            pass
-                            
-                import time; time.sleep(sleep_time)
+                _rate_limit_sleep(e)
                 continue
             return []
 
@@ -244,37 +347,74 @@ def apply_annotations_to_pdf(directory_path):
     print(f"输出目标路径: {output_pdf_path}", flush=True)
 
     # 初始化 OpenAI 客户端
-    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=90.0)
     md_content = load_markdown(md_path)
     
     # Auto-detect language of deep analysis report
-    import re
     cjk_re = re.compile(r'[\u4e00-\u9fff]')
     lang = "en" if not cjk_re.search(md_content[:1500]) else "zh"
     print(f"Auto-detected report language: {lang}", flush=True)
     
     doc = fitz.open(pdf_path)
     max_pages = len(doc)
-    print(f"PDF 共 {max_pages} 页，全书批注流程已启动！", flush=True)
- 
-    all_ai_annotations = []
- 
-    # 逐页处理
-    for page_num in range(max_pages):
+    body_end = max_pages
+    try:
+        from backend.services.pdf_body import detect_body_range
+        info = detect_body_range(pdf_path)
+        if info.get("confidence") == "heading" and info.get("body_end_page"):
+            body_end = int(info["body_end_page"])
+            print(f"正文截至第 {body_end} 页，跳过参考文献及之后。", flush=True)
+    except Exception as e:
+        print(f"[Annotate] body detect skipped: {e}", flush=True)
+    print(f"PDF 共 {max_pages} 页，将批注 1–{body_end} 页。", flush=True)
+
+    jobs = []
+    for page_num in range(body_end):
         page = doc[page_num]
         page_text = page.get_text("text")
         page_text = re.sub(r'\n{3,}', '\n\n', page_text)
-        
         if len(page_text.strip()) < 50:
             print(f"第 {page_num + 1} 页文字过少，大概全是图片，跳过。", flush=True)
             continue
-            
-        annotations = get_ai_annotations_for_page(client, page_text, md_content, page_num + 1, lang=lang)
-        
-        # Sleep to avoid rate limits (Gemini free tier allows 15 requests per minute)
-        import time
-        time.sleep(4.5)
-        
+        if _looks_refs_page(page_text, page_num + 1, max_pages):
+            print(f"第 {page_num + 1} 页像参考文献，跳过。", flush=True)
+            continue
+        jobs.append((page_num + 1, page_text[:4500]))
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    workers = max(1, min(int(os.environ.get("ANNOTATE_CONCURRENCY", "50") or 50), len(jobs) or 1))
+    print(f"并行批注 pages={len(jobs)} workers={workers} model={MODEL_NAME}", flush=True)
+
+    def _one(job):
+        pno, ptext = job
+        local = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=90.0)
+        if API_KEYS:
+            import random as _rnd
+            local.api_key = _rnd.choice(API_KEYS)
+        anns = get_ai_annotations_for_page(local, ptext, md_content, pno, lang=lang)
+        return pno, anns or []
+
+    page_anns = {}
+    from backend.services.stage_progress import write_progress
+    write_progress(None, 0, max(1, len(jobs)))
+    finished = 0
+    if jobs:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(_one, j) for j in jobs]
+            for fut in as_completed(futs):
+                try:
+                    pno, anns = fut.result()
+                    page_anns[int(pno) - 1] = anns or []
+                    finished += 1
+                except Exception as e:
+                    print(f"[Annotate] worker failed: {e}", flush=True)
+                    finished += 1
+                write_progress(None, min(finished, len(jobs)), max(1, len(jobs)))
+
+    all_ai_annotations = []
+    for page_num in range(body_end):
+        page = doc[page_num]
+        annotations = page_anns.get(page_num) or []
         success_count = 0
         for ann in annotations:
             target_text = ann.get("target_text", "")

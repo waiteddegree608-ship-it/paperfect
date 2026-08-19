@@ -38,6 +38,19 @@ const modelName = args[5] || 'Qwen/Qwen2.5-72B-Instruct';
 const customBaseURL = args[6] || 'https://api.siliconflow.cn/v1';
 const pptLang = args[7] || 'zh';
 const forceRefresh = args.includes('--force-refresh') || process.env.PPT_FORCE_REFRESH === '1';
+// Follow-up "补充说明" slides double deck length and break group-meeting flow
+// (e.g. 24 figures → 48 slides). Default OFF; pass --followups or FOLLOWUP_SLIDES=1.
+const allowFollowups =
+    args.includes('--followups') ||
+    process.env.FOLLOWUP_SLIDES === '1' ||
+    process.env.FOLLOWUP_SLIDES === 'true';
+// Optional cap on figure slides for huge papers (0 = no cap)
+const maxFigures = (() => {
+    const a = args.find(x => x.startsWith('--max-figures='));
+    if (a) return Math.max(0, parseInt(a.split('=')[1], 10) || 0);
+    const e = parseInt(process.env.PPT_MAX_FIGURES || '0', 10);
+    return Number.isFinite(e) ? Math.max(0, e) : 0;
+})();
 const isEn = pptLang === 'en';
 
 const client = new OpenAI({
@@ -618,7 +631,7 @@ Rules:
 - If the image is tall/narrow (single-column crop), still use 0–1 coords within the visible image; do not assume full-page layout.
 - Labels stay short; descriptions should be pedagogically useful (not telegraphic stubs).
 - Do NOT invent content not supported by the figure or report.
-- follow_up_slides: ${MODE === 'creative' ? 'optional 0–1 text-only deep-dive slides with bullet_points (plain text math only)' : 'always []'}.
+- follow_up_slides: always [] (do not emit extra text-only slides; keep one slide per figure).
 ` : `
 你是学术组会 PPT 设计师。请为论文中的【一张图】设计讲解卡片。
 
@@ -652,7 +665,7 @@ ${mdContent}
 - 半栏/窄图同样用 0–1 坐标，不要按整页版式假设。
 - label 可短；description 不要电报体空壳。
 - 不要编造图中/报告中没有的内容。
-- follow_up_slides：${MODE === 'creative' ? '可选 0–1 页纯文字深入页，bullet_points 用纯文本公式' : '必须 []'}。
+- follow_up_slides：必须 []（不要额外补充说明页；一图一页即可）。
 `;
 
     const maxRetries = 2;
@@ -685,12 +698,9 @@ ${mdContent}
             const result = response.choices[0].message.content;
             let parsed = null;
             const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
-            if (jsonMatch) parsed = JSON.parse(jsonMatch[1]);
-            else {
-                const rawMatch = result.match(/\{\s*"slide_title"[\s\S]*\}/);
-                if (rawMatch) parsed = JSON.parse(rawMatch[0]);
-                else throw new Error('Unable to parse JSON');
-            }
+            const rawBlob = jsonMatch ? jsonMatch[1] : (result.match(/\{\s*"slide_title"[\s\S]*\}/) || [])[0];
+            if (!rawBlob) throw new Error('Unable to parse JSON');
+            parsed = safeParseModelJson(rawBlob);
 
             console.log(`   * Success! annotations=${(parsed.annotations || []).length}`);
             return {
@@ -711,12 +721,59 @@ ${mdContent}
             const sleepTime = isRateLimit ? 35000 : 8000;
             console.error(`   ! Error ${imageName} (Attempt ${attempt}/${maxRetries}):`, errStr);
             if (attempt === maxRetries) {
-                console.error(`   ! Max retries reached for ${imageName}.`);
-                process.exit(1);
+                console.error(`   ! Max retries reached for ${imageName} — using fallback slide (continue).`);
+                return {
+                    imageName,
+                    base64Data,
+                    nativeW,
+                    nativeH,
+                    imgW: nativeW,
+                    imgH: nativeH,
+                    imgX: 0,
+                    imgY: 0,
+                    slide_title: isEn ? cleanText(imageName) : cleanText(imageName),
+                    overall_explanation: isEn
+                        ? 'See the figure; auto labels failed for this panel.'
+                        : '见图；该图自动标注失败，仅展示原图。',
+                    annotations: [
+                        {
+                            label: isEn ? 'Overview' : '总览',
+                            targetX: 0.5,
+                            targetY: 0.5,
+                            description: isEn
+                                ? 'Full figure overview (fallback).'
+                                : '整图总览（自动标注失败时的兜底）。'
+                        }
+                    ],
+                    follow_up_slides: []
+                };
             }
             await new Promise(r => setTimeout(r, sleepTime));
         }
     }
+}
+
+/** Tolerate common LLM JSON issues (bad backslashes, trailing commas). */
+function safeParseModelJson(raw) {
+    let s = String(raw || '').trim();
+    // strip BOM / fences leftovers
+    s = s.replace(/^\uFEFF/, '');
+    const attempts = [
+        s,
+        // invalid escapes like \中 or \a → keep char
+        s.replace(/\\(?!["\\/bfnrtu])/g, ''),
+        s.replace(/,(\s*[}\]])/g, '$1'),
+        s.replace(/\\(?!["\\/bfnrtu])/g, '').replace(/,(\s*[}\]])/g, '$1'),
+    ];
+    let lastErr;
+    for (const cand of attempts) {
+        try {
+            return JSON.parse(cand);
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    throw lastErr || new Error('JSON parse failed');
 }
 
 function hydrateFromCache(cached, file) {
@@ -756,40 +813,53 @@ async function run() {
     console.log('1. Reading Markdown and enumerating images...');
     console.log(`   Layout mode: SIDE CALLOUTS (human-style)`);
     console.log(`   Force refresh LLM: ${forceRefresh}`);
+    console.log(`   Follow-up slides: ${allowFollowups ? 'ON' : 'OFF (default)'}`);
+    console.log(`   Max figures: ${maxFigures || 'unlimited'}`);
     const mdContent = fs.readFileSync(mdPath, 'utf-8');
 
     let files = [];
     try {
-        files = fs.readdirSync(imgDir).filter(f => /\.(png|jpg|jpeg)$/i.test(f)).sort();
+        files = fs.readdirSync(imgDir).filter(f => /\.(png|jpg|jpeg)$/i.test(f));
+        // Natural sort: Figure_2 before Figure_10
+        files.sort((a, b) => {
+            const na = a.match(/Figure_(\d+)/i);
+            const nb = b.match(/Figure_(\d+)/i);
+            if (na && nb) return parseInt(na[1], 10) - parseInt(nb[1], 10) || a.localeCompare(b);
+            return a.localeCompare(b);
+        });
     } catch (e) {
         console.log(`Warning: Image dir ${imgDir} missing.`);
     }
-    // If both "Figure_1.png" and "PaperName_Figure_1.png" exist, keep one family
-    // Prefer the higher-resolution / longer-named extractions when both are present.
+    // If both "Figure_1.png" and "PaperName_Figure_1.png" exist, keep one family.
+    // Prefer short Figure_N.png (current extract_semantic_figures output); long names are legacy.
     const shortFigs = files.filter(f => /^Figure_\d+\.(png|jpg|jpeg)$/i.test(f));
     const longFigs = files.filter(f => /.+_Figure_\d+\.(png|jpg|jpeg)$/i.test(f));
-    if (shortFigs.length >= 2 && longFigs.length >= 2) {
-        // keep the set with larger total bytes (usually cleaner paper figures)
-        const sumSize = (arr) => arr.reduce((s, f) => {
-            try { return s + fs.statSync(path.join(imgDir, f)).size; } catch { return s; }
-        }, 0);
-        files = sumSize(longFigs) >= sumSize(shortFigs) ? longFigs : shortFigs;
-        console.log(`[Dedupe] Multiple figure naming schemes detected — using: ${files.join(', ')}`);
+    if (shortFigs.length >= 1 && longFigs.length >= 1) {
+        files = shortFigs.length >= longFigs.length ? shortFigs : longFigs;
+        // Always prefer short when both families exist and short has any files
+        if (shortFigs.length > 0) files = shortFigs;
+        console.log(`[Dedupe] Multiple figure naming schemes — preferring: ${files.join(', ')}`);
+    }
+    if (maxFigures > 0 && files.length > maxFigures) {
+        console.log(`[Cap] Limiting figures ${files.length} → ${maxFigures}`);
+        files = files.slice(0, maxFigures);
     }
     console.log(`Found ${files.length} images: ${files.join(', ')}`);
 
     // Separate EN/ZH caches so experiment English decks don't reuse Chinese labels
     const cachePath = path.join(path.dirname(outputPath), isEn ? 'ppt_cache_en.json' : 'ppt_cache_zh.json');
     let cache = {};
-    if (fs.existsSync(cachePath) && !forceRefresh) {
+    // Always load cache for relayout when not force-refreshing LLM
+    if (fs.existsSync(cachePath)) {
         try {
             cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
             console.log(`[Cache] Loaded ${Object.keys(cache).length} entries.`);
         } catch (e) {
             console.warn('Failed to load cache:', e.message);
         }
-    } else if (forceRefresh && fs.existsSync(cachePath)) {
-        console.log('[Cache] --force-refresh: ignoring existing cache for LLM calls.');
+    }
+    if (forceRefresh) {
+        console.log('[Cache] --force-refresh: will re-call LLM (annotations); follow-ups still stripped unless --followups.');
     }
 
     const results = [];
@@ -798,12 +868,15 @@ async function run() {
         if (!forceRefresh && cache[file] && cache[file].annotations) {
             console.log(`[Cache] -> Relayout only for ${file}`);
             res = hydrateFromCache(cache[file], file);
+        } else if (forceRefresh && cache[file] && cache[file].annotations && process.env.PPT_RELAYOUT_ONLY === '1') {
+            // Fast path: rebuild deck from cache without LLM
+            console.log(`[Cache] -> Relayout-only (PPT_RELAYOUT_ONLY) for ${file}`);
+            res = hydrateFromCache(cache[file], file);
         } else {
             res = await processImage(file, mdContent);
             if (res) {
                 cache[file] = res;
                 try {
-                    // store without rewriting entire huge cache mid-way if needed
                     fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
                 } catch (e) {
                     console.warn('Failed to save cache:', e.message);
@@ -811,7 +884,37 @@ async function run() {
             }
             await new Promise(r => setTimeout(r, 6000));
         }
-        if (res) results.push(res);
+        if (res) {
+            // Strip follow-ups unless explicitly enabled
+            if (!allowFollowups) res.follow_up_slides = [];
+            results.push(res);
+        }
+    }
+
+    // Do NOT write a blank / empty PPTX when network failed for every figure.
+    // Exit non-zero so the pipeline marks the task interrupted and "重试继续" can resume
+    // (per-figure cache ppt_cache_*.json is still on disk for successful slides).
+    if (files.length > 0 && results.length === 0) {
+        console.error(
+            `\n[FATAL] No slides generated (${files.length} figures found, 0 succeeded). ` +
+            `Likely network / API failure. Not writing empty PPTX. Re-run to resume from cache.`
+        );
+        process.exit(2);
+    }
+    if (files.length === 0) {
+        console.warn('[WARN] No figure images found — writing title-only deck is skipped; abort.');
+        process.exit(3);
+    }
+    const fallbackOnly = results.every(
+        (r) => !r.annotations || r.annotations.length === 0 ||
+            (r.overall_explanation || '').includes('自动标注失败') ||
+            (r.overall_explanation || '').includes('auto labels failed')
+    );
+    if (fallbackOnly && results.length > 0) {
+        console.warn(
+            `[WARN] All ${results.length} slides are fallback placeholders (API likely failed). ` +
+            `Still writing deck so images are visible; re-run after network recovery to fill labels from cache refresh.`
+        );
     }
 
     console.log('\n2. Building presentation with side-callout layout...');
@@ -820,11 +923,51 @@ async function run() {
     pres.author = 'Paperfect';
     pres.title = path.basename(outputPath, '.pptx');
 
+    // Build PDF↔PPT sync map: figure slides + optional follow-ups share the figure's PDF page
+    const syncMap = [];
+    let slideIdx = 0;
+    let figPages = {};
+    try {
+        const metaPath = path.join(imgDir, 'figures_metadata.json');
+        if (fs.existsSync(metaPath)) {
+            figPages = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            if (figPages && figPages.pages) figPages = figPages.pages;
+        }
+    } catch (_) {}
+
     results.forEach((slideData) => {
         addCalloutFigureSlide(pres, slideData);
+        const figFile = slideData.imageName || '';
+        let pdfPage = figPages[figFile];
+        if (pdfPage == null) {
+            const base = path.basename(figFile);
+            pdfPage = figPages[base];
+        }
+        if (pdfPage == null) {
+            const m = String(figFile).match(/Figure_(\d+)/i);
+            pdfPage = m ? parseInt(m[1], 10) : null;
+        }
+        syncMap.push({
+            slideIndex: slideIdx,
+            kind: 'figure',
+            figureFile: figFile,
+            pdfPage: pdfPage
+        });
+        slideIdx += 1;
+
         const fus = slideData.follow_up_slides || [];
-        if (MODE === 'creative' && Array.isArray(fus)) {
-            fus.forEach(fu => addFollowUpSlide(pres, fu));
+        if (allowFollowups && MODE === 'creative' && Array.isArray(fus)) {
+            fus.forEach((fu, fi) => {
+                addFollowUpSlide(pres, fu);
+                syncMap.push({
+                    slideIndex: slideIdx,
+                    kind: 'followup',
+                    figureFile: figFile,
+                    followupIndex: fi,
+                    pdfPage: pdfPage
+                });
+                slideIdx += 1;
+            });
         }
     });
 
@@ -855,6 +998,24 @@ async function run() {
         execFileSync('python', [clipPy, finalPath], { stdio: 'inherit' });
     } catch (e) {
         console.warn('! clip_pptx_text post-process skipped:', e.message);
+    }
+
+    // Persist slide↔PDF page map for the in-app editor (survives follow-up slides)
+    try {
+        const mapPath = path.join(path.dirname(outputPath), 'slide_sync_map.json');
+        const pageMapping = {};
+        for (const row of syncMap) {
+            if (row.pdfPage != null) pageMapping[String(row.slideIndex)] = row.pdfPage;
+        }
+        fs.writeFileSync(mapPath, JSON.stringify({
+            version: 1,
+            slides: syncMap,
+            page_mapping: pageMapping,
+            n_slides: syncMap.length
+        }, null, 2), 'utf-8');
+        console.log(` Sync map: ${syncMap.length} slides → ${mapPath}`);
+    } catch (e) {
+        console.warn('! Failed to write slide_sync_map.json:', e.message);
     }
 
     console.log('========================================');

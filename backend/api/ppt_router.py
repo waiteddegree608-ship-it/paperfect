@@ -509,7 +509,7 @@ async def analyze_image_route(request: AnalyzeRequest):
         if isinstance(keys, str):
             keys = [keys]
         api_key = random.choice(keys) if keys else (cfg.get("chat_api_key") or "")
-        base_url = cfg.get("parse_api_url") or cfg.get("chat_api_url") or "https://api.siliconflow.cn/v1"
+        base_url = cfg.get("parse_api_url") or cfg.get("chat_api_url") or "https://opencode.ai/zen/go/v1"
         model = cfg.get("parse_model") or cfg.get("chat_model") or "Qwen/Qwen2.5-72B-Instruct"
 
         client = OpenAI(api_key=api_key, base_url=base_url)

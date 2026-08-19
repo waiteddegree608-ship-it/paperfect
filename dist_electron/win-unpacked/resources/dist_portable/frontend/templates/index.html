@@ -186,7 +186,8 @@
         .spinner {
             width: 46px; height: 46px; border: 4px solid rgba(255, 255, 255, 0.05);
             border-top: 4px solid #60a5fa; border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 20px;
+            animation: spin 0.85s linear infinite !important; margin-bottom: 20px;
+            flex-shrink: 0;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .processing-text { line-height: 1.5; font-size: 13px; color: #94a3b8; font-weight: 500;}
@@ -371,7 +372,9 @@
                     <option value="cyan-light">Cyan Light</option>
                 </optgroup>
             </select>
-            <button class="icon-btn" onclick="toggleDarkLight()" title="切换昼夜模式" style="font-size:16px;">🌓</button>
+            <button class="icon-btn" id="theme-mode-btn" onclick="toggleDarkLight()" title="切换昼夜模式" style="font-size:16px; display:flex; align-items:center; justify-content:center;">
+                <span id="theme-mode-icon">🌙</span>
+            </button>
             <button class="icon-btn" id="cancel-manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter'; display: none;">取消</button>
             <button class="icon-btn" id="manage-btn" onclick="toggleManageMode()" style="width: auto; padding: 0 15px; font-weight: bold; font-family:'Inter';">管理</button>
             <button class="icon-btn" onclick="openSettings()" title="系统配置">
@@ -927,12 +930,22 @@
             } catch(e) {}
         }
         
+        function updateThemeModeIcon(themeName) {
+            const icon = document.getElementById('theme-mode-icon');
+            if (!icon) return;
+            const isLight = (themeName || '').includes('light') || themeName === 'cyan-light';
+            icon.textContent = isLight ? '🌙' : '☀️';
+        }
+
         function changeTheme(themeName) {
+            if (themeName === 'github-light' || themeName === 'light') themeName = 'cyan-light';
+            if (themeName === 'github-dark' || themeName === 'dark') themeName = 'antigravity';
+
             document.body.setAttribute('data-theme', themeName);
             localStorage.setItem('theme', themeName);
             
             // Record last selection per mode
-            if (themeName.includes('light')) {
+            if (themeName.includes('light') || themeName === 'cyan-light') {
                 localStorage.setItem('preferred_light', themeName);
                 localStorage.setItem('last_mode', 'light');
             } else {
@@ -944,25 +957,25 @@
             if (sel && sel.value !== themeName) {
                 sel.value = themeName;
             }
+            updateThemeModeIcon(themeName);
         }
 
         function toggleDarkLight() {
-            const currentMode = localStorage.getItem('last_mode') || 'dark';
-            if (currentMode === 'dark') {
-                const lightTheme = localStorage.getItem('preferred_light') || 'github-light';
-                changeTheme(lightTheme);
+            const current = localStorage.getItem('theme') || document.body.getAttribute('data-theme') || 'antigravity';
+            const isLight = current.includes('light') || current === 'cyan-light';
+            if (isLight) {
+                changeTheme(localStorage.getItem('preferred_dark') || 'antigravity');
             } else {
-                const darkTheme = localStorage.getItem('preferred_dark') || 'github-dark';
-                changeTheme(darkTheme);
+                changeTheme(localStorage.getItem('preferred_light') || 'cyan-light');
             }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            let activeTheme = localStorage.getItem('theme') || 'github-dark';
+            let activeTheme = localStorage.getItem('theme') || 'antigravity';
             
             // For backward compatibility with the old boolean format
-            if (activeTheme === 'light') activeTheme = 'github-light';
-            if (activeTheme === 'dark') activeTheme = 'github-dark';
+            if (activeTheme === 'light' || activeTheme === 'github-light') activeTheme = 'cyan-light';
+            if (activeTheme === 'dark' || activeTheme === 'github-dark') activeTheme = 'antigravity';
 
             changeTheme(activeTheme);
             ensurePromptOptions();

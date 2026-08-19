@@ -100,6 +100,9 @@ class Document(Base):
     core_type = Column(String, nullable=True) # 南大核心 / 北大核心 / 中文核心
     research_field = Column(String, nullable=True)
     research_direction = Column(String, nullable=True)
+    authors = Column(Text, nullable=True)  # JSON array of author names
+    year = Column(String, nullable=True)
+    doi = Column(String, nullable=True)
     
     abstract = Column(Text, nullable=True)
     en_abstract = Column(Text, nullable=True)
@@ -147,3 +150,22 @@ except Exception as e:
     print("            选择安装在不需要管理员权限的目录（例如桌面、文档或 C:\\Users\\ 目录下）。")
     print("="*80 + "\n")
     raise e
+
+def _ensure_sqlite_columns():
+    """Add columns introduced after first install without wiping the library DB."""
+    try:
+        from sqlalchemy import inspect, text
+        insp = inspect(engine)
+        if "documents" not in insp.get_table_names():
+            return
+        existing = {c["name"] for c in insp.get_columns("documents")}
+        wanted = {"authors": "TEXT", "year": "VARCHAR", "doi": "VARCHAR"}
+        with engine.begin() as conn:
+            for col, typ in wanted.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE documents ADD COLUMN {col} {typ}"))
+                    print(f"[DB] added documents.{col}")
+    except Exception as e:
+        print(f"[DB] column migrate skipped: {e}")
+
+_ensure_sqlite_columns()

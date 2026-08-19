@@ -4,6 +4,7 @@ from backend.services.file_manager import handle_upload_file, get_item_by_name, 
 from backend.services.task_runner import async_run_builder
 from backend.core.config import get_base_dir
 from pydantic import BaseModel
+import json
 
 router = APIRouter()
 
@@ -56,10 +57,30 @@ async def resume_task(book_name: str, background_tasks: BackgroundTasks, prompt_
                 break
     if os.path.exists(pdf_path_paper):
         task_id = f"papers_{book_name}"
+        flags = {"do_translate": True, "do_annotate": True, "do_ppt": True}
+        pipe_fp = os.path.join(get_base_dir(), "data", "papers", book_name, "pipeline.json")
+        try:
+            if os.path.isfile(pipe_fp):
+                with open(pipe_fp, "r", encoding="utf-8") as f:
+                    saved = json.load(f) or {}
+                for k in flags:
+                    if k in saved:
+                        flags[k] = bool(saved[k])
+        except Exception:
+            pass
         if task_id not in active_tasks:
             active_tasks.add(task_id)
             background_tasks.add_task(
-                async_run_builder, pdf_path_paper, book_name, "paper", prompt_type, ppt_mode, ppt_lang
+                async_run_builder,
+                pdf_path_paper,
+                book_name,
+                "paper",
+                prompt_type,
+                ppt_mode,
+                ppt_lang,
+                flags["do_translate"],
+                flags["do_annotate"],
+                flags["do_ppt"],
             )
         return {"status": "processing", "book_name": book_name, "type": "paper"}
 

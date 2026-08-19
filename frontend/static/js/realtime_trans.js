@@ -254,44 +254,67 @@ class RealtimeTranslationManager {
     }
 
     initSelectionListeners() {
-        setInterval(() => {
-            document.querySelectorAll('iframe').forEach(iframe => {
-                if (!iframe.id.startsWith('iframe-')) return;
-                if (iframe.dataset.transListenerAttached) return;
-
+        window.addEventListener('message', (ev) => {
+            const d = ev.data || {};
+            if (!d || typeof d !== 'object') return;
+            if (d.type === 'paperfect-selection' || d.type === 'paperfect-open-realtime') {
+                const text = (d.text || '').replace(/\s+/g, ' ').trim();
+                if (text) this.applySelectedText(text, { force: d.type === 'paperfect-open-realtime' });
+            }
+        });
+        const bindIframe = (iframe) => {
+            if (!iframe || !iframe.id || !iframe.id.startsWith('iframe-')) return;
+            const attach = () => {
                 try {
-                    const doc = iframe.contentWindow.document;
-                    if (doc) {
-                        doc.addEventListener('mouseup', () => {
-                            this.handleSelection(iframe.contentWindow);
-                        });
-                        doc.addEventListener('keyup', (e) => {
-                            if (e.shiftKey && (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End')) {
-                                this.handleSelection(iframe.contentWindow);
-                            }
-                        });
-                        iframe.dataset.transListenerAttached = 'true';
-                    }
+                    const win = iframe.contentWindow;
+                    const doc = win && win.document;
+                    if (!doc || doc._paperfectTransBound) return;
+                    doc._paperfectTransBound = true;
+                    doc.addEventListener('mouseup', () => this.handleSelection(win));
+                    doc.addEventListener('keyup', (e) => {
+                        if (e.shiftKey && (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End')) {
+                            this.handleSelection(win);
+                        }
+                    });
+                } catch (e) {}
+            };
+            if (!iframe._paperfectBindHooked) {
+                iframe._paperfectBindHooked = true;
+                iframe.addEventListener('load', attach);
+            }
+            attach();
+        };
+        document.querySelectorAll('iframe').forEach(bindIframe);
+        setInterval(() => {
+            document.querySelectorAll('iframe').forEach((iframe) => {
+                if (!iframe.id || !iframe.id.startsWith('iframe-')) return;
+                bindIframe(iframe);
+                try {
+                    const doc = iframe.contentWindow && iframe.contentWindow.document;
+                    if (doc && !doc._paperfectTransBound) bindIframe(iframe);
                 } catch (e) {}
             });
-        }, 1000);
+        }, 1500);
     }
 
     handleSelection(win) {
-        // 如果面板既没有展示在主窗口，也没打开PiP，说明被完全关掉了，此时不处理
-        if (this.pane.style.display === 'none' && !this.pipWindow) return;
+        try {
+            const selection = win.getSelection();
+            let text = selection ? selection.toString().trim() : '';
+            text = text.replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            this.applySelectedText(text, { autoTranslate: true });
+        } catch (e) {}
+    }
 
-        const selection = win.getSelection();
-        let text = selection.toString().trim();
-        
-        // 将多个换行符和空格压缩为一个空格，解决断句问题
-        text = text.replace(/\s+/g, ' ').trim();
-        
-        if (!text || text === this.lastSelectedText) return;
+    applySelectedText(text, opts) {
+        const force = !!(opts && opts.force);
+        if (!text) return;
+        if (this.sourceText) this.sourceText.value = text;
+        if (text === this.lastSelectedText && !force) return;
         this.lastSelectedText = text;
-        
-        this.sourceText.value = text;
-        this.triggerTranslation(text);
+        const paneOpen = (this.pane && this.pane.style.display !== 'none') || !!this.pipWindow;
+        if (force || paneOpen) this.triggerTranslation(text);
     }
 
     async triggerTranslation(text) {

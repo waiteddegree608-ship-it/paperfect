@@ -47,7 +47,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from backend.core.config import get_base_dir
-from backend.api import paper_router, ppt_router, chat_router, config_router, library_router
+from backend.api import paper_router, ppt_router, chat_router, config_router, library_router, tools_router
 from backend.services.file_manager import scan_items, get_item_by_name
 import fitz
 import io
@@ -100,6 +100,7 @@ app.include_router(ppt_router.router)
 app.include_router(chat_router.router)
 app.include_router(config_router.router)
 app.include_router(library_router.router)
+app.include_router(tools_router.router)
 
 # Views and static routes
 @app.get("/", response_class=HTMLResponse)
@@ -203,76 +204,49 @@ def auto_heal_empty_abstracts():
     import json
     
     def heal_worker():
-        # Wait 5 seconds for the database and server to settle
-        time.sleep(5)
-        
-        from backend.models.database import SessionLocal, Document, Tag
-        from backend.services.paper_analyzer import analyze_paper
-        
+        time.sleep(8)
+        from backend.models.database import SessionLocal, Document
+        from backend.services.paper_analyzer import analyze_paper, apply_analysis_to_document
+
+        pending_ids = []
         db = SessionLocal()
         try:
-            docs_to_heal = db.query(Document).filter(
-                (Document.abstract == "") | 
-                (Document.abstract.is_(None)) | 
-                (Document.title == "Unknown Title") |
-                (Document.venue == "Unknown")
-            ).all()
-            
-            if not docs_to_heal:
-                return
-                
-            print(f"[Auto Heal] Found {len(docs_to_heal)} documents lacking complete metadata/abstract.")
-            for doc in docs_to_heal:
-                if not doc.file_path or not os.path.exists(doc.file_path):
-                    continue
-                    
-                print(f"[Auto Heal] Healing metadata for: {doc.original_filename}...")
-                analysis = analyze_paper(doc.file_path)
-                
-                en_title = analysis.get("en_title")
-                if en_title and en_title != "Unknown Title":
-                    doc.title = en_title
-                    
-                if not doc.abstract or doc.abstract == "":
-                    doc.abstract = analysis.get("abstract", "")
-                if not doc.en_abstract or doc.en_abstract == "":
-                    doc.en_abstract = analysis.get("en_abstract", "")
-                if not doc.zh_title or doc.zh_title == "":
-                    doc.zh_title = analysis.get("zh_title", "")
-                if doc.venue == "Unknown" or not doc.venue:
-                    doc.venue = analysis.get("venue", "Unknown")
-                if not doc.paper_type or doc.paper_type == "":
-                    doc.paper_type = analysis.get("paper_type", "")
-                if not doc.jcr_partition or doc.jcr_partition == "":
-                    doc.jcr_partition = analysis.get("jcr_partition", "")
-                if not doc.ccf_partition or doc.ccf_partition == "":
-                    doc.ccf_partition = analysis.get("ccf_partition", "")
-                if not doc.core_type or doc.core_type == "":
-                    doc.core_type = analysis.get("core_type", "")
-                if not doc.research_field or doc.research_field == "" or doc.research_field == "{}":
-                    f_val = analysis.get("research_field", "")
-                    doc.research_field = json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val)
-                if not doc.research_direction or doc.research_direction == "" or doc.research_direction == "{}":
-                    d_val = analysis.get("research_direction", "")
-                    doc.research_direction = json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val)
-                    
-                for kw in analysis.get("zh_keywords", []):
-                    kw = kw.strip()
-                    if not kw: continue
-                    tag = db.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
-                    if not tag:
-                        tag = Tag(name=kw, category="Keywords")
-                        db.add(tag)
-                    if tag not in doc.tags:
-                        doc.tags.append(tag)
-                        
-                db.commit()
-                print(f"[Auto Heal] Successfully healed: {doc.original_filename}")
+            pending_ids = [
+                d.id for d in db.query(Document).filter(
+                    (Document.abstract == "") |
+                    (Document.abstract.is_(None)) |
+                    (Document.paper_type == "") |
+                    (Document.paper_type.is_(None)) |
+                    (Document.year.is_(None)) |
+                    (Document.year == "") |
+                    (Document.venue.ilike("%arxiv%"))
+                ).all()
+            ]
         except Exception as e:
-            print(f"[Auto Heal] Error: {e}")
-            db.rollback()
+            print(f"[Auto Heal] query failed: {e}", flush=True)
+            pending_ids = []
         finally:
             db.close()
+
+        if not pending_ids:
+            return
+        print(f"[Auto Heal] Found {len(pending_ids)} documents lacking metadata.", flush=True)
+        for doc_id in pending_ids[:12]:
+            local = SessionLocal()
+            try:
+                doc = local.query(Document).filter(Document.id == doc_id).first()
+                if not doc or not doc.file_path or not os.path.exists(doc.file_path):
+                    continue
+                print(f"[Auto Heal] Healing metadata for: {doc.original_filename}...", flush=True)
+                analysis = analyze_paper(doc.file_path)
+                apply_analysis_to_document(local, doc, analysis)
+                print(f"[Auto Heal] Successfully healed: {doc.original_filename}", flush=True)
+            except Exception as e:
+                print(f"[Auto Heal] Error on doc {doc_id}: {e}", flush=True)
+                local.rollback()
+            finally:
+                local.close()
+            time.sleep(1.5)
             
     threading.Thread(target=heal_worker, daemon=True).start()
 
@@ -284,12 +258,9 @@ async def health():
 
 @app.on_event("startup")
 async def startup_event():
-    # Auto-heal can hammer SQLite + LLM on every launch and freeze the UI
-    # (blank library, stuck navigations). Keep it opt-in only.
-    if os.environ.get("PAPERFECT_AUTO_HEAL", "").strip() in ("1", "true", "TRUE", "yes"):
-        auto_heal_empty_abstracts()
-    else:
-        print("[Startup] Auto-heal disabled (set PAPERFECT_AUTO_HEAL=1 to enable).")
+    # Heal a few pending-metadata papers in the background (per-doc, capped)
+    # so a previous tag IntegrityError does not leave the library stuck.
+    auto_heal_empty_abstracts()
 
 def _run_packaged_script():
     """

@@ -100,11 +100,17 @@ def _doc_pipeline_status(book_name: str):
     kb = os.path.join(target_dir or "", "parsed", f"{book_name}_KnowledgeBase.md") if target_dir else ""
     raw_pdf = os.path.join(target_dir or "", "raw", f"{book_name}.pdf") if target_dir else ""
 
-    has_pptx = bool(pptx_path and os.path.exists(pptx_path))
-    has_annotated = bool(annotated and os.path.exists(annotated))
-    has_translated = bool(translated and os.path.exists(translated))
-    has_kb = bool(kb and os.path.exists(kb))
-    has_raw = bool(raw_pdf and os.path.exists(raw_pdf))
+    def _ok(p, min_b=64):
+        try:
+            return bool(p) and os.path.isfile(p) and os.path.getsize(p) >= min_b
+        except OSError:
+            return False
+
+    has_pptx = _ok(pptx_path, 8000)  # empty failed PPTX must not count as ready
+    has_annotated = _ok(annotated, 1024)
+    has_translated = _ok(translated, 1024)
+    has_kb = _ok(kb, 200)
+    has_raw = _ok(raw_pdf, 64)
     # Viewable as soon as raw PDF exists (chat page); richer tabs need annotated/etc.
     can_open = has_raw or has_annotated or has_kb
 
@@ -220,6 +226,59 @@ def get_documents(folder_id: Optional[int] = None, tag: Optional[str] = None, db
 from backend.services.file_manager import handle_upload_file as old_handle_upload_file
 from backend.services.task_runner import active_tasks, async_run_builder
 
+@router.post("/documents/{doc_id}/retag")
+def retag_document(doc_id: int, db: Session = Depends(get_db)):
+    """Re-run metadata/abstract/tag analysis for a library document (no full pipeline)."""
+    import json as _json
+    from backend.services.paper_analyzer import analyze_paper
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = doc.file_path
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="PDF file missing on disk")
+    analysis = analyze_paper(path)
+    en_title = analysis.get("en_title")
+    if en_title and en_title != "Unknown Title":
+        doc.title = en_title
+    if analysis.get("zh_title"):
+        doc.zh_title = analysis.get("zh_title")
+    doc.venue = analysis.get("venue") or doc.venue or "Unknown"
+    doc.paper_type = analysis.get("paper_type") or doc.paper_type or ""
+    doc.jcr_partition = analysis.get("jcr_partition") or ""
+    doc.ccf_partition = analysis.get("ccf_partition") or ""
+    doc.core_type = analysis.get("core_type") or ""
+    f_val = analysis.get("research_field", "")
+    doc.research_field = _json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val or "")
+    d_val = analysis.get("research_direction", "")
+    doc.research_direction = _json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val or "")
+    if analysis.get("abstract"):
+        doc.abstract = analysis.get("abstract")
+    if analysis.get("en_abstract"):
+        doc.en_abstract = analysis.get("en_abstract")
+    doc.en_keywords = _json.dumps(analysis.get("en_keywords", []), ensure_ascii=False)
+    for kw in analysis.get("zh_keywords", []) or []:
+        kw = (kw or "").strip()
+        if not kw:
+            continue
+        tag = db.query(Tag).filter(Tag.name == kw, Tag.category == "Keywords").first()
+        if not tag:
+            tag = Tag(name=kw, category="Keywords")
+            db.add(tag)
+        if tag not in doc.tags:
+            doc.tags.append(tag)
+    db.commit()
+    db.refresh(doc)
+    return {
+        "status": "success",
+        "id": doc.id,
+        "title": doc.title,
+        "zh_title": doc.zh_title,
+        "paper_type": doc.paper_type,
+        "tags": [t.name for t in doc.tags],
+    }
+
 @router.post("/upload")
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -246,11 +305,21 @@ async def upload_document(
         folder = db.query(Folder).filter(Folder.name == "默认文件夹").first()
 
     # Use the old handle_upload_file to save to data/papers or data/textbooks
-    book_name, pdf_path = await old_handle_upload_file(file, item_type)
-    
-    # Save to DB
+    # (safe short book_name for paths; display_title keeps the human-readable name)
+    try:
+        upload_result = await old_handle_upload_file(file, item_type)
+    except RuntimeError as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(e))
+    if isinstance(upload_result, (list, tuple)) and len(upload_result) >= 3:
+        book_name, pdf_path, display_title = upload_result[0], upload_result[1], upload_result[2]
+    else:
+        book_name, pdf_path = upload_result[0], upload_result[1]
+        display_title = book_name
+
+    # Save to DB — title shows full original name; paths use safe book_name
     doc = Document(
-        title=book_name,
+        title=display_title or book_name,
         original_filename=f"{book_name}.pdf",
         file_path=pdf_path,
         folder_id=folder.id if folder else None

@@ -12,6 +12,25 @@
   --text-muted: #94a3b8;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
+  --workspace-bg: rgba(15, 23, 42, 0.5);
+  --toolbar-bg: #0f172a;
+  --toolbar-border: #1e293b;
+}
+
+/* Cyan Light / day mode — keep slide canvas white, chrome light */
+html.theme-light,
+body.theme-light,
+body[data-theme="cyan-light"] {
+  --bg-color: #e8eef2;
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --border-color: rgba(15, 23, 42, 0.1);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --accent: #39b2b2;
+  --accent-hover: #2a8f8f;
+  --workspace-bg: #dfe7ec;
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #d0dbe3;
 }
 
 * {
@@ -32,6 +51,167 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
+}
+
+.ppt-shell {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+.ppt-toolbar {
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 12px;
+  flex-shrink: 0;
+  /* Auto-wrap: show all tools, no horizontal scroll / clip */
+  overflow: visible;
+  height: auto;
+  min-height: 44px;
+  max-height: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  padding: 8px 10px;
+  gap: 6px 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.ppt-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  border-radius: 10px;
+  padding: 3px 5px;
+  height: 34px;
+  min-height: 34px;
+}
+
+/* Vertical seps are optional; hide when alone on a wrapped line edge */
+.ppt-toolbar-sep {
+  display: none;
+}
+
+.ppt-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.ppt-tb-btn:hover:not(:disabled) {
+  background: var(--chip-hover);
+  color: var(--text-main);
+}
+.ppt-tb-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.ppt-tb-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.ppt-tb-btn.danger {
+  color: #e11d48;
+}
+.ppt-tb-btn.danger:hover:not(:disabled) {
+  background: rgba(225, 29, 72, 0.12);
+  color: #be123c;
+}
+
+.ppt-tb-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  min-width: 48px;
+  text-align: center;
+  user-select: none;
+}
+
+.ppt-tb-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  /* Prefer trailing end of last row; wrap cleanly when narrow */
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  padding: 0 4px;
+  line-height: 34px;
+}
+
+.ppt-color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 0.12s;
+}
+.ppt-color-dot:hover {
+  transform: scale(1.1);
+}
+.ppt-color-dot.active {
+  border-color: var(--text-main);
+  box-shadow: 0 0 0 1px var(--toolbar-bg);
+}
+
+:root {
+  --chip-bg: rgba(15, 23, 42, 0.55);
+  --chip-border: #1e293b;
+  --chip-hover: rgba(148, 163, 184, 0.15);
+}
+
+html.theme-light,
+body.theme-light,
+body[data-theme="cyan-light"] {
+  --chip-bg: #f1f5f9;
+  --chip-border: #e2e8f0;
+  --chip-hover: rgba(15, 23, 42, 0.06);
+}
+
+.ppt-workspace {
+  background: var(--workspace-bg);
+  overflow: hidden; /* fixed canvas area — no page scroll chrome */
+}
+
+.ppt-empty {
+  color: var(--text-muted);
+  border: 2px dashed var(--toolbar-border);
+  background: var(--panel-bg);
+  border-radius: 16px;
+  padding: 40px 28px;
+  max-width: 420px;
+  text-align: center;
+}
+.ppt-empty h2 {
+  color: var(--text-main);
+  font-size: 18px;
+  margin: 12px 0 8px;
+}
+.ppt-empty p {
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* Scrollbar styling */

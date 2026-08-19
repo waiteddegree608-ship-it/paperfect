@@ -161,10 +161,10 @@ class ProjectManager:
         if u is None:
             return None
         # Padding: more horizontal for multi-panel half-column figures
-        pad_x = 10 if mode != "full" else 14
+        pad_x = 14 if mode != "full" else 16
         pad_y_top = 8
         # Keep room for (a)(b)(c) sub-captions sitting between drawings and main "Figure N" line
-        bottom = min(caption.y0 - 2, u.y1 + 28)
+        bottom = min(caption.y0 - 2, u.y1 + 32)
         crop = fitz.Rect(u.x0 - pad_x, u.y0 - pad_y_top, u.x1 + pad_x, bottom)
         return crop & page_rect
 

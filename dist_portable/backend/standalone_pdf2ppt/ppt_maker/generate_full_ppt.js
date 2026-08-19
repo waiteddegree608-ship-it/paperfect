@@ -891,6 +891,32 @@ async function run() {
         }
     }
 
+    // Do NOT write a blank / empty PPTX when network failed for every figure.
+    // Exit non-zero so the pipeline marks the task interrupted and "重试继续" can resume
+    // (per-figure cache ppt_cache_*.json is still on disk for successful slides).
+    if (files.length > 0 && results.length === 0) {
+        console.error(
+            `\n[FATAL] No slides generated (${files.length} figures found, 0 succeeded). ` +
+            `Likely network / API failure. Not writing empty PPTX. Re-run to resume from cache.`
+        );
+        process.exit(2);
+    }
+    if (files.length === 0) {
+        console.warn('[WARN] No figure images found — writing title-only deck is skipped; abort.');
+        process.exit(3);
+    }
+    const fallbackOnly = results.every(
+        (r) => !r.annotations || r.annotations.length === 0 ||
+            (r.overall_explanation || '').includes('自动标注失败') ||
+            (r.overall_explanation || '').includes('auto labels failed')
+    );
+    if (fallbackOnly && results.length > 0) {
+        console.warn(
+            `[WARN] All ${results.length} slides are fallback placeholders (API likely failed). ` +
+            `Still writing deck so images are visible; re-run after network recovery to fill labels from cache refresh.`
+        );
+    }
+
     console.log('\n2. Building presentation with side-callout layout...');
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_16x9';

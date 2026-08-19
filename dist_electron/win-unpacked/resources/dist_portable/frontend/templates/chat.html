@@ -4,6 +4,23 @@
     <meta charset="UTF-8">
     <title>Paperfect - {{ book_name }}</title>
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <script>
+    (function () {
+        try {
+            var t = localStorage.getItem('theme') || 'antigravity';
+            if (t === 'light') t = 'cyan-light';
+            if (t === 'dark' || t === 'github-dark') t = 'antigravity';
+            var lang = localStorage.getItem('paperfect_lang') || 'zh';
+            document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
+            document.documentElement.setAttribute('data-theme', t);
+            var applyBody = function () {
+                if (document.body) document.body.setAttribute('data-theme', t);
+            };
+            applyBody();
+            document.addEventListener('DOMContentLoaded', applyBody);
+        } catch (e) {}
+    })();
+    </script>
     <!-- Google Fonts removed to prevent 10s loading delay in China -->
     <style>
         /* GitHub Dark (Default Dark) Fallback */
@@ -419,7 +436,9 @@
         </div>
         <div class="pane" id="pane-ppt" style="display: none;">
             <div class="pane-header" data-i18n="chat.pane_ppt">PPT 独立流式编辑器</div>
-            <iframe src="/ppt_editor/{{ book_name }}" title="Web PPT Editor"></iframe>
+            {# Static SPA under FastAPI — no separate Node/Vite process needed #}
+            {# v= busts Electron persist:paperfect cache so toolbar redesign loads #}
+            <iframe id="iframe-ppt" src="/ppt_editor_app/index.html?v=20260728toolbar3&book={{ book_name | urlencode }}" title="Web PPT Editor"></iframe>
         </div>
         
         <!-- 实时翻译子面板 -->
@@ -439,7 +458,7 @@
                         <span data-i18n="chat.source_label">原文 (支持划选捕获与手动修改)</span>
                         <div style="display: flex; gap: 8px;">
                             <button id="realtime-btn-pip-return" style="display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.embed_back">↙ 嵌入网页</button>
-                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.translate_btn">手动翻译</button>
+                            <button id="realtime-btn-translate" style="background: var(--primary-accent); border: none; color: white; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;" data-i18n="chat.translate_btn">翻译</button>
                         </div>
                     </div>
                     <textarea id="realtime-source-text" autocomplete="off" spellcheck="false" data-form-type="other" data-i18n="chat.source_placeholder" placeholder="在主页面的文献中划选文字，将自动显示在此处..." style="flex: 1; border: none; background: transparent; color: var(--text-color); padding: 12px; resize: none; font-size: 14px; outline: none;"></textarea>
@@ -495,7 +514,10 @@
     <script src="/static/js/realtime_trans.js?v=3"></script>
     <script>
         // PPT Page Mapping & Slide Change Sync Listener
+        // page_mapping keys are slide indices (strings); values are 1-based PDF page numbers.
+        // Follow-up slides (补充说明) share the parent figure's PDF page.
         window.pptPageMapping = null;
+        window.pptCurrentSlideIndex = 0;
         window.addEventListener('message', (event) => {
             if (event.data) {
                 if (event.data.type === 'PPT_MAPPING_LOADED') {
@@ -503,9 +525,11 @@
                     console.log("[Parent] Loaded PPT page mapping:", window.pptPageMapping);
                 } else if (event.data.type === 'SLIDE_CHANGED_BY_USER') {
                     const slideIndex = event.data.slideIndex;
+                    window.pptCurrentSlideIndex = slideIndex;
                     console.log("[Parent] Slide changed by user:", slideIndex);
-                    if (window.pptPageMapping && window.pptPageMapping[slideIndex] !== undefined) {
-                        const targetPage = window.pptPageMapping[slideIndex];
+                    const map = window.pptPageMapping;
+                    if (map && (map[slideIndex] !== undefined || map[String(slideIndex)] !== undefined)) {
+                        const targetPage = map[slideIndex] !== undefined ? map[slideIndex] : map[String(slideIndex)];
                         console.log("[Parent] Navigating PDF to page:", targetPage);
                         
                         if (window.pdfSyncManager && window.pdfSyncManager.iframes) {
@@ -518,7 +542,10 @@
                                     try {
                                         const innerWin = iframe.contentWindow;
                                         if (innerWin && innerWin.PDFViewerApplication) {
-                                            innerWin.PDFViewerApplication.page = targetPage;
+                                            // Only jump if page actually changes (avoid jitter on 补充说明 of same page)
+                                            if (innerWin.PDFViewerApplication.page !== targetPage) {
+                                                innerWin.PDFViewerApplication.page = targetPage;
+                                            }
                                         }
                                     } catch (e) {
                                         console.warn("[Parent] Failed to set page for iframe:", id, e.message);
@@ -537,10 +564,12 @@
         });
 
         // Check theme setup from homepage preference
-        let activeTheme = localStorage.getItem('theme') || 'github-dark';
-        if (activeTheme === 'light') activeTheme = 'github-light';
-        if (activeTheme === 'dark') activeTheme = 'github-dark';
+        let activeTheme = localStorage.getItem('theme') || 'antigravity';
+        if (activeTheme === 'light') activeTheme = 'cyan-light';
+        if (activeTheme === 'dark' || activeTheme === 'github-dark') activeTheme = 'antigravity';
+        if (activeTheme === 'github-light') activeTheme = 'cyan-light';
         document.body.setAttribute('data-theme', activeTheme);
+        localStorage.setItem('theme', activeTheme);
         
         const storeKey = "chat_histories_{{ book_name }}";
         let chatHistory = []; // current context

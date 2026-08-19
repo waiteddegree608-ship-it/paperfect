@@ -7,12 +7,55 @@ from backend.core.config import get_base_dir, load_config
 from backend.services.file_manager import active_tasks, active_tasks_progress
 
 def get_python_executable():
+    """Prefer venv / runtime python; fall back to this process (frozen paperfect.exe)."""
     import sys
-    if getattr(sys, 'frozen', False):
-        venv_python = os.path.join(get_base_dir(), "venv", "Scripts", "python.exe")
-        if os.path.exists(venv_python):
-            return venv_python
+    base = get_base_dir()
+    candidates = [
+        os.path.join(base, "venv", "Scripts", "python.exe"),
+        os.path.join(base, "runtime", "python", "python.exe"),
+        os.path.join(base, "python", "python.exe"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
     return sys.executable
+
+
+def get_node_executable():
+    """Resolve Node for PPT generation (bundled runtime first, then PATH)."""
+    base = get_base_dir()
+    candidates = [
+        os.path.join(base, "runtime", "node", "node.exe"),
+        os.path.join(base, "runtime", "node", "node"),
+        os.path.join(base, "node", "node.exe"),
+        "node",
+    ]
+    for c in candidates:
+        if c == "node":
+            return c
+        if os.path.isfile(c):
+            return c
+    return "node"
+
+
+def python_cmd_for_script(script_path, *script_args):
+    """
+    Build argv to run a .py file.
+    When the interpreter is the frozen paperfect.exe, use --script so main.py
+    dispatches via runpy instead of starting uvicorn.
+    """
+    import sys
+    py = get_python_executable()
+    script_path = os.path.abspath(script_path)
+    args = [str(a) for a in script_args]
+    frozen_self = getattr(sys, "frozen", False) and os.path.normcase(os.path.abspath(py)) == os.path.normcase(
+        os.path.abspath(sys.executable)
+    )
+    # Also treat named paperfect.exe without venv as frozen helper
+    looks_like_app_exe = os.path.basename(py).lower() in ("paperfect.exe", "paperfect_backend.exe")
+    if frozen_self or looks_like_app_exe:
+        return [py, "--script", script_path] + args
+    return [py, "-u", script_path] + args
 
 def force_print(*args, **kwargs):
     text = " ".join(map(str, args))
@@ -188,7 +231,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
     try:
         if item_type == "book":
             script_path = os.path.join(get_base_dir(), "backend", "services", "universal_kb_builder.py")
-            await run_subprocess("Book Builder", [get_python_executable(), "-u", script_path, pdf_path], book_name=book_name)
+            await run_subprocess("Book Builder", python_cmd_for_script(script_path, pdf_path), book_name=book_name)
         else:
             base_dir = get_base_dir()
             target_dir = os.path.join(base_dir, "data", "papers", book_name)
@@ -207,8 +250,19 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
             # Provide a work_dir for legacy scripts that expect it
             work_dir = os.path.join(target_dir, "raw")
 
+            def _file_ok(path, min_bytes=64):
+                try:
+                    return os.path.isfile(path) and os.path.getsize(path) >= min_bytes
+                except OSError:
+                    return False
+
             # Step 1: Translate and Parse in parallel
             async def run_translate():
+                # Resume: skip if translated PDF already exists
+                if _file_ok(translated_pdf, min_bytes=1024):
+                    force_print(f"[Translate] Resume skip — already exists: {translated_pdf}")
+                    set_stage_frac("translate", 1.0, "translate")
+                    return
                 if ppt_lang == "en":
                     force_print("[Translate] Target language is English. Skipping translation and copying original PDF.")
                     shutil.copy(pdf_path, translated_pdf)
@@ -219,7 +273,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 crawl = asyncio.create_task(crawl_stage("translate", 0.1, 0.9, 90, stop_ev))
                 script_path = os.path.join(get_base_dir(), "backend", "services", "paper_translator.py")
                 try:
-                    await run_subprocess("Translate", [get_python_executable(), "-u", script_path, pdf_path, translated_pdf], book_name=book_name)
+                    await run_subprocess("Translate", python_cmd_for_script(script_path, pdf_path, translated_pdf), book_name=book_name)
                     set_stage_frac("translate", 1.0, "translate")
                 except Exception as e:
                     force_print(f"Translate failed, skipping translation: {e}")
@@ -229,6 +283,12 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                     crawl.cancel()
 
             async def run_parse():
+                # Resume: if KnowledgeBase already written, skip expensive re-parse
+                if _file_ok(kb_file, min_bytes=200):
+                    force_print(f"[Parse] Resume skip — KnowledgeBase exists: {kb_file}")
+                    set_stage_frac("parse", 1.0, "parse")
+                    return
+
                 def parse_sync():
                     from backend.services.project_manager import ProjectManager
                     from backend.services.llm_client import PaperReaderBot
@@ -278,6 +338,20 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
 
             # Step 2: PPT and Annotate in parallel
             async def run_ppt():
+                # Resume: keep a non-trivial pptx (blank ones are tiny / marked failed)
+                sync_map = os.path.join(target_dir, "pptx", "slide_sync_map.json")
+                if _file_ok(out_ppt, min_bytes=8000) and _file_ok(sync_map, min_bytes=8):
+                    force_print(f"[PPT] Resume skip — presentation exists: {out_ppt}")
+                    set_stage_frac("ppt", 1.0, "ppt")
+                    return
+                # Remove empty / failed previous pptx so UI doesn't treat as ready
+                if os.path.isfile(out_ppt) and not _file_ok(out_ppt, min_bytes=8000):
+                    try:
+                        os.remove(out_ppt)
+                        force_print("[PPT] Removed previous empty/failed PPTX before retry")
+                    except OSError:
+                        pass
+
                 set_stage_frac("ppt", 0.08, "ppt")
                 force_print(f"\n========== Step 3: Compiling PPTX ==========")
                 ppt_script = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker", "generate_full_ppt.js")
@@ -288,7 +362,7 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 ppt_model = cfg.get("paper_model") or cfg.get("chat_model") or "Qwen/Qwen2.5-72B-Instruct"
                 api_url = cfg.get("chat_api_url") or cfg.get("parse_api_url") or "https://api.siliconflow.cn/v1"
                 
-                cmd = ["node", ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model, api_url, ppt_lang]
+                cmd = [get_node_executable(), ppt_script, kb_file, figures_dir, out_ppt, ppt_mode, api_key, ppt_model, api_url, ppt_lang]
                 cwd = os.path.join(base_dir, "backend", "standalone_pdf2ppt", "ppt_maker")
                 
                 stop_ev = asyncio.Event()
@@ -314,16 +388,21 @@ async def async_run_builder(pdf_path: str, book_name: str, item_type: str, promp
                 set_stage_frac("ppt", 1.0, "ppt")
 
             async def run_annotate():
+                if _file_ok(annotated_pdf, min_bytes=1024):
+                    force_print(f"[Annotate] Resume skip — annotated PDF exists: {annotated_pdf}")
+                    set_stage_frac("annotate", 1.0, "annotate")
+                    return
                 set_stage_frac("annotate", 0.08, "annotate")
                 force_print(f"\n========== Step 4: Generate Annotated PDF ==========")
                 annotator_script = os.path.join(base_dir, "backend", "services", "pdf_annotator.py")
                 # Copy md to work_dir so pdf_annotator can find it alongside raw pdf
                 temp_md = os.path.join(work_dir, f"{book_name}_KnowledgeBase.md")
-                shutil.copy(kb_file, temp_md)
+                if _file_ok(kb_file, min_bytes=50):
+                    shutil.copy(kb_file, temp_md)
                 stop_ev = asyncio.Event()
                 crawl = asyncio.create_task(crawl_stage("annotate", 0.10, 0.92, 240, stop_ev))
                 try:
-                    await run_subprocess("Annotator", [get_python_executable(), "-u", annotator_script, work_dir], book_name=book_name)
+                    await run_subprocess("Annotator", python_cmd_for_script(annotator_script, work_dir), book_name=book_name)
                     ann_in_work = os.path.join(work_dir, f"{book_name}_annotated.pdf")
                     if os.path.exists(ann_in_work):
                         shutil.move(ann_in_work, annotated_pdf)

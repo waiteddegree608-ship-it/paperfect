@@ -2,6 +2,17 @@ import os
 import sys
 import json
 
+# Windows console: avoid 锟斤拷 mojibake when printing Chinese (force UTF-8 streams)
+if sys.platform == "win32":
+    try:
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure standard streams are redirected to app_debug.log if running as frozen executable
 if getattr(sys, 'frozen', False) or sys.stdout is None or sys.stderr is None:
     try:
@@ -21,7 +32,13 @@ if getattr(sys, 'frozen', False) or sys.stdout is None or sys.stderr is None:
 
 # Ensure the root directory is in sys.path so that 'from backend...' works
 # even if the script is executed directly via `python backend/main.py`
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Packaged: paperfect.exe lives next to backend/ + frontend/ (dist_portable root)
+if getattr(sys, "frozen", False):
+    _root = os.path.dirname(sys.executable)
+else:
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +64,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def disable_stale_frontend_cache(request: Request, call_next):
+    """Prevent Electron persist: partition from serving old PPT toolbar HTML/JS."""
+    response = await call_next(request)
+    path = request.url.path or ""
+    if (
+        path.startswith("/ppt_editor_app")
+        or path.startswith("/chat/")
+        or path == "/"
+        or path.endswith(".html")
+        or path.endswith(".js")
+        or path.endswith(".css")
+    ):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 
 FRONTEND_DIR = os.path.join(get_base_dir(), "frontend")
 templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
@@ -150,9 +187,15 @@ async def get_ai_annotations(book_name: str):
         print("Read annotations.json error:", e, "path=", json_path)
         return []
 
-@app.get("/ppt_editor/{book_name}")
+@app.get("/ppt_editor/{book_name:path}")
 async def ppt_editor_page(request: Request, book_name: str):
-    return RedirectResponse(f"/ppt_editor_app/index.html?book={book_name}")
+    from urllib.parse import unquote, quote
+    book_name = unquote(book_name or "").strip().strip("/")
+    # Static SPA entry (no separate Node/Vite server required in production)
+    return RedirectResponse(
+        f"/ppt_editor_app/index.html?book={quote(book_name, safe='')}",
+        status_code=302,
+    )
 
 def auto_heal_empty_abstracts():
     import threading
@@ -248,34 +291,58 @@ async def startup_event():
     else:
         print("[Startup] Auto-heal disabled (set PAPERFECT_AUTO_HEAL=1 to enable).")
 
+def _run_packaged_script():
+    """
+    Frozen mode helper: paperfect.exe --script path/to/file.py [args...]
+    Lets Electron-packaged builds re-use this exe as the Python interpreter for
+    annotator / translator / book-builder subprocesses without a system Python.
+    """
+    import runpy
+    from backend.core.config import get_base_dir as _gbd
+
+    script_path = os.path.abspath(sys.argv[2])
+    if not os.path.isfile(script_path):
+        print(f"[paperfect] --script not found: {script_path}", flush=True)
+        sys.exit(2)
+    # Rewrite argv so scripts see: [script_path, *args]
+    sys.argv = [script_path] + sys.argv[3:]
+    root = _gbd()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    runpy.run_path(script_path, run_name="__main__")
+
+
 if __name__ == "__main__":
+    # Packaged subprocess entry (must run before uvicorn / webview)
+    if len(sys.argv) >= 3 and sys.argv[1] in ("--script", "script"):
+        _run_packaged_script()
+        sys.exit(0)
+
     import uvicorn
     import threading
     import time
-    
+
     is_headless = "headless" in sys.argv or "--headless" in sys.argv or os.environ.get("PAPERFECT_HEADLESS") == "1"
-    
+
     if is_headless:
-        # Run uvicorn server directly on main thread
+        # Run uvicorn server directly on main thread (Electron spawns us this way)
         uvicorn.run(app, host="127.0.0.1", port=8900)
     else:
-        # Run uvicorn in a daemon thread so it terminates when the GUI window is closed
+        # Standalone paperfect.exe with embedded webview window
         def run_server():
             uvicorn.run(app, host="127.0.0.1", port=8900)
-            
+
         t = threading.Thread(target=run_server, daemon=True)
         t.start()
-        
-        # Wait for the backend server to spin up
+
         time.sleep(1.2)
-        
+
         import webview
-        # Create and run a native desktop window loading Paperfect
         webview.create_window(
-            "Paperfect AI Academic Assistant", 
-            "http://127.0.0.1:8900/", 
-            width=1280, 
+            "Paperfect AI Academic Assistant",
+            "http://127.0.0.1:8900/",
+            width=1280,
             height=768,
-            min_size=(1024, 700)
+            min_size=(1024, 700),
         )
         webview.start()

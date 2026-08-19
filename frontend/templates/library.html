@@ -223,6 +223,24 @@
             border-color: var(--primary-accent);
         }
 
+        .sub-nav-bar .layout-btn {
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+            background: transparent;
+            border: 1px solid var(--header-border);
+            color: var(--text-color);
+            padding: 6px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .sub-nav-bar .layout-btn.active {
+            background: var(--primary-accent);
+            color: #fff;
+            border-color: var(--primary-accent);
+        }
+
         /* Content Area */
         .content-area {
             flex: 1;
@@ -832,6 +850,7 @@
                     <button class="close-btn" onclick="document.getElementById('uploadModal').classList.remove('active')">&times;</button>
                 </div>
                 <p id="selectedFileName" style="color:var(--text-muted); font-size:13px; margin-top:0; word-break: break-all;"></p>
+                <ul id="selectedFileList" style="max-height:120px;overflow:auto;padding-left:18px;margin:0 0 12px;color:var(--text-muted);font-size:12px;"></ul>
                 
                 <input type="hidden" id="upload_item_type" value="paper">
                 
@@ -850,16 +869,20 @@
                     <div class="form-group">
                         <label data-i18n="upload.prompt_label">选择提示词方案</label>
                         <select id="upload_prompt">
-                            <option value="计算机+人工智能" data-i18n="upload.prompt_cs_ai">计算机+人工智能</option>
-                            <option value="提示词汇总" data-i18n="upload.prompt_default">默认提示词</option>
                         </select>
                     </div>
-                    <div class="form-group" style="margin-bottom:0;">
+                    <div class="form-group" style="margin-bottom:10px;">
                         <label data-i18n="upload.language_label">生成语言 / Output Language</label>
                         <select id="upload_language">
                             <option value="zh" data-i18n="upload.lang_zh" selected>中文 / Chinese</option>
                             <option value="en" data-i18n="upload.lang_en">英文 / English</option>
                         </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label data-i18n="upload.stages_label">处理阶段（默认全开）</label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_translate" checked> <span data-i18n="upload.do_translate">翻译 PDF</span></label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_annotate" checked> <span data-i18n="upload.do_annotate">AI 批注</span></label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_ppt" checked> <span data-i18n="upload.do_ppt">制作 PPT</span></label>
                     </div>
                 </div>
                 <input type="hidden" id="upload_ppt_mode" value="creative">
@@ -878,7 +901,7 @@
                 
                 <div class="form-group">
                     <label data-i18n="settings.url_label">API URL (Base)</label>
-                    <input type="text" id="parse_api_url" placeholder="https://generativelanguage.googleapis.com/v1beta/openai/">
+                    <input type="text" id="parse_api_url" placeholder="https://opencode.ai/zen/go/v1">
                 </div>
                 <div class="form-group" id="parse_keys_container">
                     <label data-i18n="settings.keys_label">API Keys (支持多秘钥并发轮询)</label>
@@ -886,8 +909,12 @@
                     <button class="add-key-btn" onclick="window.addParseKeyInput('')" data-i18n="settings.keys_add">+ 增加 API Key</button>
                 </div>
                 <div class="form-group">
-                    <label data-i18n="settings.model_label">大模型名称 (视觉/文本通用)</label>
-                    <input type="text" id="parse_model" placeholder="gemini-2.5-flash">
+                    <label data-i18n="settings.model_label">解析 / PPT 看图模型</label>
+                    <input type="text" id="parse_model" placeholder="qwen3.7-plus">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="settings.text_model_label">文本/翻译/批注模型（可留空与解析模型相同）</label>
+                    <input type="text" id="text_model" placeholder="qwen3.7-plus">
                 </div>
                 
                 <button class="save-btn" id="settingsSaveBtn" onclick="window.saveSettings()" data-i18n="settings.save_btn">保存配置并全局生效</button>

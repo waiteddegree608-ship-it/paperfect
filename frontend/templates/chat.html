@@ -406,6 +406,19 @@
         <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')" data-i18n="chat.ppt">PPT</button>
         <button class="layout-btn" id="btn-layout-realtime" onclick="togglePane('realtime')" data-i18n="chat.realtime">实时翻译</button>
         <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')" data-i18n="chat.ai">AI</button>
+        <div class="layout-btn" id="tools-menu-wrap" style="position:relative;">
+            <button class="layout-btn" id="btn-tools" data-i18n="chat.tools">工具</button>
+            <div id="tools-dropdown" style="display:none;position:absolute;right:0;top:110%;min-width:220px;background:var(--pane-bg);border:1px solid var(--pane-border);border-radius:10px;padding:8px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.25);">
+                <div style="font-size:11px;color:var(--text-muted);margin:4px 8px;">DPI</div>
+                <input id="export-dpi" type="number" value="300" min="72" max="600" style="width:90%;margin:0 8px 8px;padding:4px 6px;">
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('images')" data-i18n="chat.tool_pages">导出页面为图片</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('figures')" data-i18n="chat.tool_figures">导出论文配图</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('docx')" data-i18n="chat.tool_docx">转为 Word</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('md')" data-i18n="chat.tool_md">导出 Markdown</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('tex')" data-i18n="chat.tool_tex">导出 LaTeX</button>
+                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('ocr')" data-i18n="chat.tool_ocr">OCR 可检索 PDF</button>
+            </div>
+        </div>
     </div>
     {% else %}
     <div class="layout-controls" style="justify-content: flex-start;">
@@ -438,7 +451,7 @@
             <div class="pane-header" data-i18n="chat.pane_ppt">PPT 独立流式编辑器</div>
             {# Static SPA under FastAPI — no separate Node/Vite process needed #}
             {# v= busts Electron persist:paperfect cache so toolbar redesign loads #}
-            <iframe id="iframe-ppt" src="/ppt_editor_app/index.html?v=20260728toolbar3&book={{ book_name | urlencode }}" title="Web PPT Editor"></iframe>
+            <iframe id="iframe-ppt" data-src="/ppt_editor_app/index.html?v=20260728toolbar3&book={{ book_name | urlencode }}" title="Web PPT Editor"></iframe>
         </div>
         
         <!-- 实时翻译子面板 -->
@@ -511,7 +524,7 @@
     </div>
 
     <script src="/static/js/pdf_sync.js"></script>
-    <script src="/static/js/realtime_trans.js?v=3"></script>
+    <script src="/static/js/realtime_trans.js?v=4"></script>
     <script>
         // PPT Page Mapping & Slide Change Sync Listener
         // page_mapping keys are slide indices (strings); values are 1-based PDF page numbers.
@@ -577,6 +590,25 @@
         const msgInput = document.getElementById("msg");
 
         // Layout Toggle Logic & Resizer Logic
+        function ensurePaneLoaded(paneType) {
+            const iframeMap = {
+                original: 'iframe-original',
+                annotated: 'iframe-annotated',
+                translated: 'iframe-translated',
+                ppt: 'iframe-ppt',
+            };
+            const id = iframeMap[paneType];
+            if (!id) return;
+            const iframe = document.getElementById(id);
+            if (!iframe || iframe.getAttribute('src')) return;
+            const baseSrc = iframe.getAttribute('data-src');
+            if (!baseSrc) return;
+            iframe.src = withCacheBust(baseSrc);
+            if (window.pdfSyncManager && paneType !== 'ppt') {
+                window.pdfSyncManager.registerIframe(paneType, iframe);
+            }
+        }
+
         function togglePane(paneType) {
             const mappings = {
                 'original': {pane: 'pane-original', btn: 'btn-layout-orig'},
@@ -592,11 +624,97 @@
                 const btn = document.getElementById(map.btn);
                 if (pane && btn) {
                     btn.classList.toggle('active');
-                    pane.style.display = btn.classList.contains('active') ? 'flex' : 'none';
+                    const show = btn.classList.contains('active');
+                    pane.style.display = show ? 'flex' : 'none';
+                    if (show) ensurePaneLoaded(paneType);
                     updateResizers();
                 }
             }
         }
+
+        function withCacheBust(url) {
+            if (!url) return url;
+            const hashAt = url.indexOf('#');
+            const pre = hashAt >= 0 ? url.slice(0, hashAt) : url;
+            const hash = hashAt >= 0 ? url.slice(hashAt) : '';
+            const join = pre.includes('?') ? '&' : '?';
+            return pre + join + 't=' + Date.now() + hash;
+        }
+
+        async function runPaperTool(kind) {
+            const book = "{{ book_name }}";
+            const dpi = parseInt((document.getElementById('export-dpi') || {}).value || '300', 10) || 300;
+            const endpoints = {
+                images: `/api/tools/export/images?book_name=${encodeURIComponent(book)}&dpi=${dpi}`,
+                figures: `/api/tools/export/figures?book_name=${encodeURIComponent(book)}&dpi=${dpi}`,
+                docx: `/api/tools/export/docx?book_name=${encodeURIComponent(book)}`,
+                md: `/api/tools/export/text?book_name=${encodeURIComponent(book)}&fmt=md`,
+                tex: `/api/tools/export/text?book_name=${encodeURIComponent(book)}&fmt=tex`,
+                ocr: `/api/tools/ocr?book_name=${encodeURIComponent(book)}`,
+            };
+            const url = endpoints[kind];
+            if (!url) return;
+            const btn = document.getElementById('btn-tools');
+            const old = btn ? btn.textContent : '';
+            if (btn) btn.textContent = '...';
+            try {
+                const res = await fetch(url, { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    alert(data.detail || data.message || ('HTTP ' + res.status));
+                    return;
+                }
+                if (data.download) window.location.href = data.download;
+                else alert(data.status || 'ok');
+            } catch (e) {
+                alert(e.message || String(e));
+            } finally {
+                if (btn) btn.textContent = old || '工具';
+                const dd = document.getElementById('tools-dropdown');
+                if (dd) dd.style.display = 'none';
+            }
+        }
+
+        window.addEventListener('message', async (ev) => {
+            const d = ev.data || {};
+            if (d.type === 'paperfect-open-realtime') {
+                const btn = document.getElementById('btn-layout-realtime');
+                if (btn && !btn.classList.contains('active')) btn.click();
+                const mgr = window.RealtimeTranslationManagerInstance;
+                if (mgr && d.text) mgr.applySelectedText(d.text, { force: true });
+                return;
+            }
+            if (d.type === 'paperfect-selection') {
+                const mgr = window.RealtimeTranslationManagerInstance;
+                if (mgr && d.text) mgr.applySelectedText(d.text);
+                return;
+            }
+            if (d.type !== 'paperfect-markup') return;
+            try {
+                const source = d.source || 'raw';
+                await fetch('/api/tools/markup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        book_name: "{{ book_name }}",
+                        page: d.page,
+                        kind: d.kind || 'highlight',
+                        note: d.note || '',
+                        rects: d.rects || [],
+                        source,
+                    }),
+                });
+                const iframeId = source === 'translated' ? 'iframe-translated'
+                    : source === 'annotated' ? 'iframe-annotated' : 'iframe-original';
+                const iframe = document.getElementById(iframeId);
+                if (iframe) {
+                    const base = iframe.getAttribute('data-src') || iframe.src;
+                    iframe.src = withCacheBust(base);
+                }
+            } catch (e) {
+                console.warn('markup failed', e);
+            }
+        });
 
         function updateResizers() {
             document.querySelectorAll('.resizer').forEach(el => el.remove());
@@ -854,28 +972,26 @@
             // Initialize PDF Scroll Synchronization
             const syncManager = new PdfScrollSyncManager();
             window.pdfSyncManager = syncManager;
-            const timestamp = Date.now();
             const iframeOriginal = document.getElementById('iframe-original');
             const iframeAnnotated = document.getElementById('iframe-annotated');
             const iframeTranslated = document.getElementById('iframe-translated');
 
             if (iframeOriginal) {
                 const baseSrc = iframeOriginal.getAttribute('data-src');
-                iframeOriginal.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
+                iframeOriginal.src = withCacheBust(baseSrc);
                 syncManager.registerIframe('original', iframeOriginal);
             }
-            if (iframeAnnotated) {
-                const baseSrc = iframeAnnotated.getAttribute('data-src');
-                iframeAnnotated.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
-                syncManager.registerIframe('annotated', iframeAnnotated);
-            }
-            if (iframeTranslated) {
-                const baseSrc = iframeTranslated.getAttribute('data-src');
-                iframeTranslated.src = baseSrc.replace('#pagemode=none', `?t=${timestamp}#pagemode=none`);
-                syncManager.registerIframe('translated', iframeTranslated);
-            }
+            // annotated / translated / ppt load on first pane open (saves RAM/CPU)
 
             syncManager.initListeners();
+
+            document.addEventListener('click', (e) => {
+                const wrap = document.getElementById('tools-menu-wrap');
+                const dd = document.getElementById('tools-dropdown');
+                if (!wrap || !dd) return;
+                if (!wrap.contains(e.target)) dd.style.display = 'none';
+                else if (e.target.id === 'btn-tools') dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+            });
 
             // Handle Sync Toggle
             const syncCheckbox = document.getElementById('sync-scroll-checkbox');

@@ -100,11 +100,17 @@ def _doc_pipeline_status(book_name: str):
     kb = os.path.join(target_dir or "", "parsed", f"{book_name}_KnowledgeBase.md") if target_dir else ""
     raw_pdf = os.path.join(target_dir or "", "raw", f"{book_name}.pdf") if target_dir else ""
 
-    has_pptx = bool(pptx_path and os.path.exists(pptx_path))
-    has_annotated = bool(annotated and os.path.exists(annotated))
-    has_translated = bool(translated and os.path.exists(translated))
-    has_kb = bool(kb and os.path.exists(kb))
-    has_raw = bool(raw_pdf and os.path.exists(raw_pdf))
+    def _ok(p, min_b=64):
+        try:
+            return bool(p) and os.path.isfile(p) and os.path.getsize(p) >= min_b
+        except OSError:
+            return False
+
+    has_pptx = _ok(pptx_path, 8000)  # empty failed PPTX must not count as ready
+    has_annotated = _ok(annotated, 1024)
+    has_translated = _ok(translated, 1024)
+    has_kb = _ok(kb, 200)
+    has_raw = _ok(raw_pdf, 64)
     # Viewable as soon as raw PDF exists (chat page); richer tabs need annotated/etc.
     can_open = has_raw or has_annotated or has_kb
 
@@ -299,11 +305,21 @@ async def upload_document(
         folder = db.query(Folder).filter(Folder.name == "默认文件夹").first()
 
     # Use the old handle_upload_file to save to data/papers or data/textbooks
-    book_name, pdf_path = await old_handle_upload_file(file, item_type)
-    
-    # Save to DB
+    # (safe short book_name for paths; display_title keeps the human-readable name)
+    try:
+        upload_result = await old_handle_upload_file(file, item_type)
+    except RuntimeError as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(e))
+    if isinstance(upload_result, (list, tuple)) and len(upload_result) >= 3:
+        book_name, pdf_path, display_title = upload_result[0], upload_result[1], upload_result[2]
+    else:
+        book_name, pdf_path = upload_result[0], upload_result[1]
+        display_title = book_name
+
+    # Save to DB — title shows full original name; paths use safe book_name
     doc = Document(
-        title=book_name,
+        title=display_title or book_name,
         original_filename=f"{book_name}.pdf",
         file_path=pdf_path,
         folder_id=folder.id if folder else None
