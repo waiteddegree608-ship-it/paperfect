@@ -35,6 +35,13 @@ const TRANSLATIONS = {
     "toolbox.merge_need_two": "合并至少需要选择两篇文献",
     "toolbox.download": "下载合并结果",
 
+    // ── Reader Workspace (browser-like tabs) ──
+    "reader.smart_group": "智能分组",
+    "reader.close_all": "关闭全部",
+    "reader.hibernated_hint": "该标签已休眠以节省内存",
+    "reader.wake": "点击唤醒",
+    "reader.uncategorized": "未分类",
+
     // ── Dashboard ──
     "dash.upload_title": "拖入 PDF 或点击此处选择文件",
     "dash.upload_sub": "支持论文与教材的深度解析",
@@ -246,6 +253,13 @@ const TRANSLATIONS = {
     "toolbox.pick_at_least_one": "Please select at least one document",
     "toolbox.merge_need_two": "Merging needs at least two documents",
     "toolbox.download": "Download merged PDF",
+
+    // ── Reader Workspace ──
+    "reader.smart_group": "Smart group",
+    "reader.close_all": "Close all",
+    "reader.hibernated_hint": "This tab was hibernated to save memory",
+    "reader.wake": "Click to wake",
+    "reader.uncategorized": "Uncategorized",
 
     // ── Dashboard ──
     "dash.upload_title": "Drop PDF here or click to select",

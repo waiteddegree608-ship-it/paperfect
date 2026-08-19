@@ -93,7 +93,7 @@ const DashboardView = {
                          draggable="true"
                          @dragstart="onDocDragStart($event, doc)"
                          @dragend="onDocDragEnd"
-                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename)"
+                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename, doc)"
                          :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }"
                          :title="(getLang() === 'en' ? doc.title : (doc.zh_title || doc.title)) + (getLang() === 'en' ? ' — drag to a folder' : ' — 可拖到文件夹')">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
@@ -160,7 +160,7 @@ const DashboardView = {
                          @dragstart="onDocDragStart($event, doc)"
                          @dragend="onDocDragEnd"
                          :title="(doc.title || '') + (getLang() === 'en' ? ' — drag to a folder' : ' — 可拖到文件夹')"
-                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename)"
+                         @click="!dragMoved && canOpenDoc(doc) && openChat(doc.original_filename, doc)"
                          :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default' }">
                         <button class="delete-btn" @click="deleteDoc($event, doc.id)">×</button>
                         <div style="position: relative; width: 100%; height: 100%;">
@@ -431,9 +431,9 @@ const DashboardView = {
             fillUploadModal(e.target.files);
         };
         
-        const openChat = (filename) => {
-            const name = filename.replace('.pdf', '');
-            window.location.href = '/chat/' + encodeURIComponent(name);
+        const openChat = (filename, doc) => {
+            if (window.openReaderTab) window.openReaderTab(filename, doc);
+            else window.location.href = '/chat/' + encodeURIComponent((filename || '').replace(/\.pdf$/i, ''));
         };
 
         const resumeDoc = async (doc) => {
@@ -631,7 +631,7 @@ const AutoLayout = {
 const ListView = {
     template: `
         <div>
-            <div class="doc-list-item" v-for="doc in filteredDocuments" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default', opacity: doc.status === 'processing' ? 0.92 : 1 }">
+            <div class="doc-list-item" v-for="doc in filteredDocuments" :key="doc.id" @click="canOpenDoc(doc) && openChat(doc.original_filename, doc)" :style="{ cursor: canOpenDoc(doc) ? 'pointer' : 'default', opacity: doc.status === 'processing' ? 0.92 : 1 }">
                 <button class="delete-btn" @click="deleteDoc($event, doc.id)" title="永久删除" style="right: 20px; top: 20px;">×</button>
                 <button class="delete-btn" @click="retagDoc($event, doc)" :title="t('auto.retag')" style="right: 52px; top: 20px; font-size:11px; width:auto; padding:0 8px;">{{ t('auto.retag') }}</button>
                 <div class="doc-title" style="position: relative;">
@@ -770,9 +770,9 @@ const ListView = {
             });
         });
         
-        const openChat = (filename) => {
-            const name = filename.replace('.pdf', '');
-            window.location.href = '/chat/' + encodeURIComponent(name);
+        const openChat = (filename, doc) => {
+            if (window.openReaderTab) window.openReaderTab(filename, doc);
+            else window.location.href = '/chat/' + encodeURIComponent((filename || '').replace(/\.pdf$/i, ''));
         };
 
         const resumeDoc = async (doc) => {
@@ -1112,7 +1112,7 @@ const SearchView = {
                 </div>
                 <div v-else-if="results.length > 0">
                     <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 15px;">共找到 {{ results.length }} 篇相关文献：</div>
-                    <div class="doc-list-item" v-for="doc in results" :key="doc.id" @click="openChat(doc.original_filename)">
+                    <div class="doc-list-item" v-for="doc in results" :key="doc.id" @click="openChat(doc.original_filename, doc)">
                         <div class="doc-title">
                             {{ doc.title }}
                             <div v-if="doc.zh_title" style="font-size: 14px; color: var(--text-muted); font-weight: normal; margin-top: 5px;">{{ doc.zh_title }}</div>
@@ -1221,9 +1221,9 @@ const SearchView = {
             }
         };
 
-        const openChat = (filename) => {
-            const name = filename.replace('.pdf', '');
-            window.location.href = '/chat/' + encodeURIComponent(name);
+        const openChat = (filename, doc) => {
+            if (window.openReaderTab) window.openReaderTab(filename, doc);
+            else window.location.href = '/chat/' + encodeURIComponent((filename || '').replace(/\.pdf$/i, ''));
         };
 
         return { userInput, chatHistory, results, loading, sendMessage, openChat };
@@ -1462,6 +1462,40 @@ const app = createApp({
                 lang.value = e.detail.lang;
                 refreshI18nDom();
             });
+
+            // Restore reader tabs from a previous session (all start hibernated except
+            // the one that was active, so re-opening the app doesn't reload a pile of PDFs).
+            try {
+                const raw = localStorage.getItem(READER_STORAGE_KEY);
+                if (raw) {
+                    const data = JSON.parse(raw) || {};
+                    (data.tabs || []).forEach(t => {
+                        if (!t || !t.book) return;
+                        readerTabs.push(reactive({
+                            book: t.book, title: t.title || t.book,
+                            field: t.field || '', direction: t.direction || '',
+                            hibernated: t.book !== data.active,
+                            lastActive: Date.now(),
+                        }));
+                    });
+                    if (data.active && readerTabs.some(x => x.book === data.active)) {
+                        activeReaderBook.value = data.active;
+                    }
+                }
+            } catch (e) { /* ignore corrupt/old storage */ }
+
+            hibernateTimer = setInterval(() => {
+                const now = Date.now();
+                readerTabs.forEach(t => {
+                    if (t.book !== activeReaderBook.value && !t.hibernated && (now - t.lastActive) > HIBERNATE_MS) {
+                        t.hibernated = true;
+                    }
+                });
+            }, 60 * 1000);
+        });
+
+        onUnmounted(() => {
+            if (hibernateTimer) clearInterval(hibernateTimer);
         });
         
         watch(() => route.path, (newPath) => {
@@ -1497,6 +1531,7 @@ const app = createApp({
 
         const switchMainTab = (tab) => {
             currentMainTab.value = tab;
+            readerWorkspaceVisible.value = false;
             if (tab === 'dashboard') {
                 router.push('/dashboard');
             } else if (tab === 'prompts') {
@@ -1553,6 +1588,128 @@ const app = createApp({
         const closeSettings = () => {
             document.getElementById('settingsModal').classList.remove('active');
         };
+
+        // ---- Reader Workspace: browser-like tabbed PDF reading with grouping + hibernation ----
+        const READER_STORAGE_KEY = 'paperfect_reader_tabs_v1';
+        const HIBERNATE_MS = 10 * 60 * 1000; // idle 10min in the background -> discard iframe
+        const GROUP_COLORS = ['#60a5fa', '#34d399', '#f59e0b', '#f472b6', '#a78bfa', '#38bdf8', '#fb7185', '#4ade80'];
+
+        const readerTabs = reactive([]);
+        const activeReaderBook = ref('');
+        const readerWorkspaceVisible = ref(false);
+        const smartGroupOn = ref(false);
+        let hibernateTimer = null;
+
+        const persistReaderTabs = () => {
+            try {
+                localStorage.setItem(READER_STORAGE_KEY, JSON.stringify({
+                    tabs: readerTabs.map(t => ({ book: t.book, title: t.title, field: t.field, direction: t.direction })),
+                    active: activeReaderBook.value,
+                }));
+            } catch (e) { /* ignore quota errors */ }
+        };
+
+        const openReaderTab = (filename, doc) => {
+            const book = (filename || '').replace(/\.pdf$/i, '');
+            if (!book) return;
+            let tab = readerTabs.find(x => x.book === book);
+            if (!tab) {
+                tab = reactive({
+                    book,
+                    title: (doc && (doc.zh_title || doc.title)) || book,
+                    field: (doc && doc.research_field) || '',
+                    direction: (doc && doc.research_direction) || '',
+                    hibernated: false,
+                    lastActive: Date.now(),
+                });
+                readerTabs.push(tab);
+            } else {
+                tab.hibernated = false;
+                tab.lastActive = Date.now();
+            }
+            activeReaderBook.value = book;
+            readerWorkspaceVisible.value = true;
+            persistReaderTabs();
+        };
+        window.openReaderTab = openReaderTab;
+
+        const switchReaderTab = (book) => {
+            const tab = readerTabs.find(x => x.book === book);
+            if (!tab) return;
+            tab.hibernated = false;
+            tab.lastActive = Date.now();
+            activeReaderBook.value = book;
+            readerWorkspaceVisible.value = true;
+            persistReaderTabs();
+        };
+
+        const closeReaderTab = (book) => {
+            const idx = readerTabs.findIndex(x => x.book === book);
+            if (idx === -1) return;
+            readerTabs.splice(idx, 1);
+            if (activeReaderBook.value === book) {
+                if (readerTabs.length > 0) {
+                    const next = readerTabs[Math.max(0, idx - 1)] || readerTabs[0];
+                    next.hibernated = false;
+                    next.lastActive = Date.now();
+                    activeReaderBook.value = next.book;
+                } else {
+                    activeReaderBook.value = '';
+                    readerWorkspaceVisible.value = false;
+                }
+            }
+            persistReaderTabs();
+        };
+
+        const closeAllReaderTabs = () => {
+            readerTabs.splice(0, readerTabs.length);
+            activeReaderBook.value = '';
+            readerWorkspaceVisible.value = false;
+            persistReaderTabs();
+        };
+
+        const showLibraryFromReader = () => {
+            readerWorkspaceVisible.value = false;
+        };
+
+        const wakeReaderTab = (book) => {
+            const tab = readerTabs.find(x => x.book === book);
+            if (!tab) return;
+            tab.hibernated = false;
+            tab.lastActive = Date.now();
+            persistReaderTabs();
+        };
+
+        const readerFrameSrc = (tab) => `/chat/${encodeURIComponent(tab.book)}?embed=1`;
+
+        const toggleSmartGroup = () => { smartGroupOn.value = !smartGroupOn.value; };
+
+        const groupColor = (tab) => {
+            const key = (tab && (tab.field || tab.direction)) || 'default';
+            let h = 0;
+            for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+            return GROUP_COLORS[h % GROUP_COLORS.length];
+        };
+
+        // Cluster open tabs by discipline (research_field) then sub-field (research_direction),
+        // reusing metadata the backend already computed during auto-tagging — no extra AI call needed.
+        const groupedReaderTabs = computed(() => {
+            if (!smartGroupOn.value || readerTabs.length === 0) {
+                return readerTabs.map(t => ({ tab: t, groupBreak: false, groupLabel: '' }));
+            }
+            const sorted = [...readerTabs].sort((a, b) => {
+                const fa = a.field || '\uffff', fb = b.field || '\uffff';
+                if (fa !== fb) return fa.localeCompare(fb);
+                return (a.direction || '').localeCompare(b.direction || '');
+            });
+            let lastKey = null;
+            return sorted.map(t => {
+                const key = (t.field || translate('reader.uncategorized') || '未分类') + (t.direction ? ' · ' + t.direction : '');
+                const isBreak = key !== lastKey;
+                lastKey = key;
+                return { tab: t, groupBreak: isBreak, groupLabel: key };
+            });
+        });
 
         // ---- Toolbox: run PDF tools on any document(s) without opening the reader ----
         let toolboxDocs = [];
@@ -1760,7 +1917,13 @@ const app = createApp({
         // Expose saveSettings and addParseKeyInput globally so they can be called from onclick attributes in inline HTML
         window.saveSettings = saveSettings;
 
-        return { currentTheme, changeTheme, toggleDarkLight, isLightTheme, currentMainTab, switchMainTab, lang, switchLang, t: translate, openSettings, closeSettings, saveSettings, openToolbox };
+        return {
+            currentTheme, changeTheme, toggleDarkLight, isLightTheme, currentMainTab, switchMainTab, lang, switchLang,
+            t: translate, openSettings, closeSettings, saveSettings, openToolbox,
+            readerTabs, activeReaderBook, readerWorkspaceVisible, smartGroupOn, groupedReaderTabs,
+            switchReaderTab, closeReaderTab, closeAllReaderTabs, showLibraryFromReader, wakeReaderTab,
+            readerFrameSrc, groupColor, toggleSmartGroup,
+        };
     }
 });
 

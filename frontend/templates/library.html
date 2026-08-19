@@ -199,6 +199,66 @@
             overflow-y: auto;
         }
 
+        /* ── Reader Workspace: browser-like tabbed PDF reading ── */
+        .reader-shell {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+            background: var(--bg-color);
+        }
+        .reader-tabbar {
+            display: flex;
+            align-items: stretch;
+            gap: 4px;
+            padding: 8px 10px 0;
+            background: var(--header-bg);
+            border-bottom: 2px solid var(--header-border);
+            overflow-x: auto;
+            flex-shrink: 0;
+            scrollbar-width: thin;
+        }
+        .reader-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 8px 7px 10px;
+            border-radius: 8px 8px 0 0;
+            background: var(--pane-bg);
+            border: 1px solid var(--header-border);
+            border-bottom: none;
+            cursor: pointer;
+            max-width: 190px;
+            min-width: 110px;
+            flex-shrink: 0;
+            opacity: .68;
+            transition: opacity .15s, background .15s;
+        }
+        .reader-tab:hover { opacity: .9; }
+        .reader-tab.active { opacity: 1; background: var(--bg-color); box-shadow: 0 -2px 0 var(--accent-color, #60a5fa) inset; }
+        .reader-tab.hibernated .reader-tab-title { opacity: .55; }
+        .reader-tab.hibernated::after { content: '💤'; font-size: 10px; margin-left: -2px; }
+        .reader-tab .reader-tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .reader-tab .reader-tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+        .reader-tab .reader-tab-close { opacity: .55; font-size: 15px; line-height: 1; padding: 0 2px; border-radius: 4px; }
+        .reader-tab .reader-tab-close:hover { opacity: 1; color: #f87171; background: rgba(248,113,113,0.12); }
+        .reader-tab.pinned-home { min-width: auto; max-width: none; border-radius: 8px; opacity: .85; }
+        .reader-group-sep { align-self: center; font-size: 10px; color: var(--text-muted); padding: 0 6px; white-space: nowrap; }
+        .reader-toolbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 12px; background: var(--header-bg); border-bottom: 1px solid var(--header-border);
+            flex-shrink: 0; font-size: 12px; color: var(--text-muted);
+        }
+        .reader-toolbar button.layout-btn { font-size: 12px; padding: 5px 10px; }
+        .reader-stage { flex: 1; position: relative; min-height: 0; background: #0b0e14; }
+        .reader-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+        .reader-hibernated-placeholder {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 10px; color: var(--text-muted); font-size: 13px; background: var(--bg-color);
+        }
+
         /* Sub Navigation Bar for Auto-Classification */
         .sub-nav-bar {
             display: flex;
@@ -804,8 +864,39 @@
             </div>
         </div>
 
-        <div class="app-container">
+        <!-- Reader tab bar: always visible once at least one paper tab is open -->
+        <div class="reader-tabbar" v-if="readerTabs.length > 0">
+            <div class="reader-tab pinned-home" :class="{active: !readerWorkspaceVisible}" @click="showLibraryFromReader" :title="t('nav.my_files')">
+                <span>📚</span>
+            </div>
+            <template v-for="item in groupedReaderTabs" :key="item.tab.book">
+                <div v-if="item.groupBreak" class="reader-group-sep" v-text="item.groupLabel"></div>
+                <div class="reader-tab" :class="{active: readerWorkspaceVisible && activeReaderBook === item.tab.book, hibernated: item.tab.hibernated}"
+                     :title="item.tab.title" @click="switchReaderTab(item.tab.book)">
+                    <span class="reader-tab-dot" :style="{background: groupColor(item.tab)}"></span>
+                    <span class="reader-tab-title" v-text="item.tab.title"></span>
+                    <span class="reader-tab-close" @click.stop="closeReaderTab(item.tab.book)">&times;</span>
+                </div>
+            </template>
+            <button class="layout-btn" style="margin:4px 4px 4px 10px;font-size:11px;padding:5px 9px;align-self:center;" :class="{active: smartGroupOn}" @click="toggleSmartGroup" :title="t('reader.smart_group')">🧠 <span v-text="t('reader.smart_group')"></span></button>
+            <button class="layout-btn" style="margin:4px 4px 4px 0;font-size:11px;padding:5px 9px;align-self:center;" @click="closeAllReaderTabs" :title="t('reader.close_all')">✕ <span v-text="t('reader.close_all')"></span></button>
+        </div>
+
+        <div class="app-container" v-show="!readerWorkspaceVisible">
             <router-view></router-view>
+        </div>
+
+        <!-- Reader Workspace: hosts one iframe per open paper tab, hibernates idle ones -->
+        <div class="reader-shell" v-show="readerWorkspaceVisible">
+            <div class="reader-stage">
+                <div v-for="tab in readerTabs" :key="tab.book" v-show="activeReaderBook === tab.book" style="position:absolute;inset:0;">
+                    <iframe v-if="!tab.hibernated" :src="readerFrameSrc(tab)" :title="tab.title"></iframe>
+                    <div v-else class="reader-hibernated-placeholder">
+                        <div>💤 <span v-text="t('reader.hibernated_hint')"></span></div>
+                        <button class="layout-btn" @click="wakeReaderTab(tab.book)" v-text="t('reader.wake')"></button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         
