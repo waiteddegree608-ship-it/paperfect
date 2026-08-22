@@ -72,7 +72,13 @@ _test_pipeline/
 
 # Compiled installers
 Paperfect_Setup.exe
+Paperfect_Setup.zip
 *.exe
+*.blockmap
+
+# Build outputs (regenerate via build_installer.py / build_portable_exe.py)
+dist_electron/
+dist_portable/
 
 # Local tool caches / logs
 _node_cache/
