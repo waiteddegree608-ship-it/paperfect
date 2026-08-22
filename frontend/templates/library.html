@@ -22,12 +22,13 @@
     </script>
     
     <!-- i18n must load before Vue -->
-    <script src="/static/js/i18n.js?v=2026071001"></script>
+    <script src="/static/js/i18n.js?v=20260822fix1"></script>
     <!-- LOCAL vendor (CDN is unreliable offline / in China -> blank UI) -->
     <script src="/static/js/vendor/vue.global.prod.js"></script>
     <script src="/static/js/vendor/vue-router.global.prod.js"></script>
     <script src="/static/js/vendor/echarts.min.js"></script>
     <script src="/static/js/vendor/marked.min.js"></script>
+    <script src="/static/js/tool_icons.js"></script>
     
     <style>
         :root {
@@ -624,6 +625,16 @@
         }
         .folder-card.add-folder .folder-name { color: var(--text-muted); font-weight: 500; }
 
+        /* ===== Small inline spinner ===== */
+        @keyframes pf-spin { to { transform: rotate(360deg); } }
+        .pf-spinner {
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 2.5px solid var(--header-border);
+            border-top-color: var(--primary-accent);
+            animation: pf-spin 0.7s linear infinite;
+            display: inline-block;
+        }
+
         /* ===== Context Menu ===== */
         .context-menu {
             position: fixed;
@@ -848,6 +859,55 @@
         .checkbox-row input {
             width: 16px; height: 16px; accent-color: var(--primary-accent);
         }
+
+        /* Toolbox modal (batch PDF tools, usable without opening a paper) */
+        .toolbox-modal { width: 900px; max-width: 92vw; max-height: 88vh; overflow-y: auto; }
+        .toolbox-body { display: grid; grid-template-columns: 300px 1fr; gap: 22px; margin-top: 6px; }
+        @media (max-width: 760px) { .toolbox-body { grid-template-columns: 1fr; } }
+        .tb-panel-left, .tb-panel-right { display: flex; flex-direction: column; min-width: 0; }
+        .tb-section-title { font-size: 12px; color: var(--text-muted); margin: 14px 0 6px; font-weight: 600; }
+        .tb-panel-left .tb-section-title:first-of-type { margin-top: 4px; }
+        .tb-panel-left input[type="text"] {
+            width: 100%; box-sizing: border-box; background: var(--input-bg);
+            border: 1px solid var(--header-border); color: var(--text-color);
+            padding: 8px 10px; border-radius: 8px; outline: none; margin-bottom: 8px; font-size: 13px;
+        }
+        .tb-dropzone {
+            border: 1.5px dashed var(--header-border); border-radius: 10px; padding: 16px 12px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            color: var(--text-muted); font-size: 12.5px; text-align: center; cursor: pointer;
+            transition: 0.2s; background: var(--input-bg);
+        }
+        .tb-dropzone svg { width: 24px; height: 24px; color: var(--primary-accent); }
+        .tb-dropzone:hover, .tb-dropzone.dragover { border-color: var(--primary-accent); color: var(--text-color); }
+        .tb-local-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 96px; overflow-y: auto; }
+        .tb-local-item {
+            display: flex; align-items: center; gap: 8px; background: var(--input-bg);
+            border: 1px solid var(--header-border); border-radius: 8px; padding: 5px 8px; font-size: 12.5px;
+        }
+        .tb-local-item .tb-ic { width: 15px; height: 15px; color: var(--primary-accent); flex-shrink: 0; display: flex; }
+        .tb-local-item .tb-ic svg { width: 15px; height: 15px; }
+        .tb-local-item .tb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color); }
+        .tb-local-item .tb-remove { cursor: pointer; color: var(--text-muted); width: 14px; height: 14px; flex-shrink: 0; display: flex; }
+        .tb-local-item .tb-remove svg { width: 14px; height: 14px; }
+        .tb-local-item .tb-remove:hover { color: var(--danger-color); }
+        .tb-doc-list {
+            flex: 1; min-height: 120px; max-height: 220px; overflow-y: auto;
+            border: 1px solid var(--header-border); border-radius: 8px; padding: 6px;
+        }
+        .tb-tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .tb-tool-card {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            padding: 14px 6px; border-radius: 12px; border: 1px solid var(--header-border);
+            background: var(--input-bg); color: var(--text-color); cursor: pointer; transition: 0.15s;
+            text-align: center; font-size: 12px; min-height: 74px;
+        }
+        .tb-tool-card svg { width: 21px; height: 21px; color: var(--text-muted); transition: 0.15s; }
+        .tb-tool-card:hover { border-color: var(--primary-accent); transform: translateY(-1px); }
+        .tb-tool-card.active { border-color: var(--primary-accent); background: var(--primary-accent); color: #fff; }
+        .tb-tool-card.active svg { color: #fff; }
+        .tb-result { margin-top: 10px; font-size: 13px; color: var(--text-muted); word-break: break-all; }
+        .tb-result a { color: var(--primary-accent); }
         
         /* Segmented Buttons for JCR/CCF */
         .segmented-control {
@@ -1176,69 +1236,50 @@
         <div class="modal-overlay" id="settingsModal">
             <div class="modal-content" style="width: 500px; max-height: 90vh; overflow-y: auto;">
                 <div class="modal-header">
-                    <h2 data-i18n="settings.title">大模型引擎配置</h2>
+                    <h2 data-i18n="settings.title">账户设置</h2>
                     <button class="close-btn" onclick="document.getElementById('settingsModal').classList.remove('active')">&times;</button>
                 </div>
-                
-                <div class="form-group">
-                    <label data-i18n="settings.url_label">API URL (Base)</label>
-                    <input type="text" id="parse_api_url" placeholder="https://opencode.ai/zen/go/v1">
-                </div>
+
                 <div class="form-group" id="parse_keys_container">
-                    <label data-i18n="settings.keys_label">API Keys (支持多秘钥并发轮询)</label>
+                    <label data-i18n="settings.keys_label">API Key（支持多秘钥并发轮询）</label>
                     <div id="parse_api_key_list"></div>
                     <button class="add-key-btn" onclick="window.addParseKeyInput('')" data-i18n="settings.keys_add">+ 增加 API Key</button>
                 </div>
-                <div class="form-group">
-                    <label data-i18n="settings.model_label">解析 / PPT 看图模型</label>
-                    <input type="text" id="parse_model" placeholder="qwen3.7-plus">
-                </div>
-                <div class="form-group">
-                    <label data-i18n="settings.text_model_label">文本/翻译/批注模型（可留空与解析模型相同）</label>
-                    <input type="text" id="text_model" placeholder="qwen3.7-plus">
-                </div>
-                
+
                 <button class="save-btn" id="settingsSaveBtn" onclick="window.saveSettings()" data-i18n="settings.save_btn">保存配置并全局生效</button>
             </div>
         </div>
 
         <!-- Toolbox Modal (batch PDF tools usable without opening a paper) -->
         <div class="modal-overlay" id="toolboxModal">
-            <div class="modal-content" style="width: 560px; max-height: 88vh; overflow-y: auto;">
+            <div class="modal-content toolbox-modal">
                 <div class="modal-header">
                     <h2 data-i18n="toolbox.title">工具箱</h2>
                     <button class="close-btn" onclick="document.getElementById('toolboxModal').classList.remove('active')">&times;</button>
                 </div>
 
-                <div class="form-group">
-                    <label data-i18n="toolbox.pick_docs">选择文献（合并需选 2 篇及以上）</label>
-                    <input type="text" id="toolbox-doc-search" data-i18n-placeholder="toolbox.search_placeholder" placeholder="搜索标题 / 文件名..." style="margin-bottom:8px;">
-                    <div id="toolbox-doc-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--header-border);border-radius:8px;padding:6px;"></div>
+                <div class="toolbox-body">
+                    <div class="tb-panel-left">
+                        <div class="tb-dropzone" id="toolbox-dropzone">
+                            <span id="tb-dropzone-icon"></span>
+                            <div data-i18n="toolbox.dropzone_text">拖拽 PDF 到此处，或点击选择本地文件</div>
+                        </div>
+                        <input type="file" id="toolbox-file-input" accept="application/pdf" multiple style="display:none;">
+                        <div class="tb-local-list" id="toolbox-local-list"></div>
+
+                        <div class="tb-section-title" data-i18n="toolbox.pick_docs">从文献库选择</div>
+                        <input type="text" id="toolbox-doc-search" data-i18n-placeholder="toolbox.search_placeholder" placeholder="搜索标题 / 文件名...">
+                        <div id="toolbox-doc-list" class="tb-doc-list"></div>
+                    </div>
+
+                    <div class="tb-panel-right">
+                        <div class="tb-section-title" data-i18n="toolbox.pick_tool">选择工具</div>
+                        <div class="tb-tool-grid" id="toolbox-tool-grid"></div>
+                        <div class="form-group" id="toolbox-params"></div>
+                        <button class="save-btn" id="toolboxRunBtn" onclick="window.runToolboxTool()" data-i18n="toolbox.run">执行</button>
+                        <div id="toolbox-result" class="tb-result"></div>
+                    </div>
                 </div>
-
-                <div class="form-group">
-                    <label data-i18n="toolbox.pick_tool">选择工具</label>
-                    <select id="toolbox-tool-select" onchange="window.onToolboxToolChange()" style="width:100%;">
-                        <option value="images" data-i18n="chat.tool_pages">导出页面为图片</option>
-                        <option value="figures" data-i18n="chat.tool_figures">导出论文配图</option>
-                        <option value="docx" data-i18n="chat.tool_docx">转为 Word</option>
-                        <option value="md" data-i18n="chat.tool_md">导出 Markdown</option>
-                        <option value="tex" data-i18n="chat.tool_tex">导出 LaTeX</option>
-                        <option value="ocr" data-i18n="chat.tool_ocr">OCR 可检索 PDF</option>
-                        <option value="rotate" data-i18n="chat.tool_rotate">旋转 PDF</option>
-                        <option value="split" data-i18n="chat.tool_split">提取页面范围</option>
-                        <option value="compress" data-i18n="chat.tool_compress">压缩 PDF</option>
-                        <option value="watermark" data-i18n="chat.tool_watermark">添加水印</option>
-                        <option value="protect" data-i18n="chat.tool_protect">加密 PDF</option>
-                        <option value="unlock" data-i18n="chat.tool_unlock">解密 PDF</option>
-                        <option value="merge" data-i18n="toolbox.tool_merge">合并 PDF（多选）</option>
-                    </select>
-                </div>
-
-                <div class="form-group" id="toolbox-params"></div>
-
-                <button class="save-btn" id="toolboxRunBtn" onclick="window.runToolboxTool()" data-i18n="toolbox.run">执行</button>
-                <div id="toolbox-result" style="margin-top:10px;font-size:13px;color:var(--text-muted);word-break:break-all;"></div>
             </div>
         </div>
 
@@ -1275,6 +1316,6 @@
             } catch (_) {}
         }, 2500);
     </script>
-    <script src="/static/js/library/main.js?v=20260819fix2"></script>
+    <script src="/static/js/library/main.js?v=20260822fix1"></script>
 </body>
 </html>

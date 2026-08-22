@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import re
 import shutil
+import uuid
 
 from urllib.parse import quote
 
@@ -52,6 +54,59 @@ def _exports_dir(book_name: str) -> str:
 
 def _download_url(book_name: str, filename: str) -> str:
     return f"/api/tools/download?book_name={quote(book_name)}&file={quote(os.path.basename(filename))}"
+
+
+_SAFE_STEM_RE = re.compile(r"[^\w\u4e00-\u9fff\-]+")
+_UPLOAD_PREFIX = "upload_"
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+
+@router.post("/upload")
+async def api_upload(file: UploadFile = File(...)):
+    """Toolbox: let users run PDF tools on a local file that isn't in the
+    library. Stored as a throwaway 'upload_<id>_<name>' scratch book so all
+    the existing book_name-based tool endpoints work unmodified."""
+    name = file.filename or ""
+    if not name.lower().endswith(".pdf"):
+        raise HTTPException(400, "只支持 PDF 文件")
+    stem = _SAFE_STEM_RE.sub("_", os.path.splitext(os.path.basename(name))[0]).strip("_") or "document"
+    book_name = f"{_UPLOAD_PREFIX}{uuid.uuid4().hex[:8]}_{stem[:60]}"
+    book_dir = os.path.join(get_base_dir(), "data", "papers", book_name)
+    raw_dir = os.path.join(book_dir, "raw")
+    os.makedirs(raw_dir, exist_ok=True)
+    dest = os.path.join(raw_dir, f"{book_name}.pdf")
+    size = 0
+    try:
+        with open(dest, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(400, "文件过大（超过 200MB）")
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "空文件")
+    except HTTPException:
+        shutil.rmtree(book_dir, ignore_errors=True)
+        raise
+    except Exception as e:
+        shutil.rmtree(book_dir, ignore_errors=True)
+        raise HTTPException(500, str(e))
+    return {"status": "success", "book_name": book_name, "display_name": name}
+
+
+@router.delete("/upload/{book_name}")
+def api_upload_delete(book_name: str):
+    """Drop a scratch upload once the user removes it from the toolbox list."""
+    safe = os.path.basename(book_name)
+    if not safe.startswith(_UPLOAD_PREFIX):
+        raise HTTPException(400, "not a scratch upload")
+    d = os.path.join(get_base_dir(), "data", "papers", safe)
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
+    return {"status": "success"}
 
 
 @router.post("/export/images")

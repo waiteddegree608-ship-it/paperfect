@@ -20,3 +20,4 @@ deep-translator
 pydantic
 ocrmypdf
 pywebview
+pyinstaller

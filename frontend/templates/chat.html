@@ -162,6 +162,37 @@
             border-color: var(--primary-accent);
             color: #fff;
         }
+        .layout-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+        .layout-btn { display: flex; align-items: center; gap: 6px; }
+        .toolbar-divider { width: 1px; height: 20px; background: var(--pane-border); flex-shrink: 0; margin: 0 2px; }
+        .view-switch { display: flex; background: var(--chat-area-bg); border: 1px solid var(--pane-border); border-radius: 10px; padding: 3px; gap: 2px; }
+        .view-switch .view-btn {
+            display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 7px;
+            border: none; background: transparent; color: var(--text-color); font-size: 13px;
+            cursor: pointer; transition: 0.2s;
+        }
+        .view-switch .view-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+        .view-switch .view-btn:hover { background: var(--btn-bg); }
+        .view-switch .view-btn.active { background: var(--primary-accent); color: #fff; }
+        .tools-wrap { position: relative; }
+        .tool-panel {
+            display: none; flex-direction: column; position: absolute; right: 0; top: 130%; width: 300px;
+            background: var(--pane-bg); border: 1px solid var(--pane-border); border-radius: 14px;
+            padding: 14px; z-index: 30; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+        }
+        .tool-panel-dpi { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+        .tool-panel-dpi label { font-size: 12px; color: var(--secondary-text); }
+        .tool-panel-dpi input { width: 70px; padding: 4px 6px; background: var(--input-bg); border: 1px solid var(--btn-border); color: var(--text-color); border-radius: 6px; }
+        .tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .tool-card {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+            padding: 10px 4px; border-radius: 10px; border: 1px solid var(--pane-border);
+            background: var(--btn-bg); color: var(--text-color); cursor: pointer; transition: 0.15s;
+            text-align: center; font-size: 11px; min-height: 62px;
+        }
+        .tool-card svg { width: 18px; height: 18px; color: var(--secondary-text); transition: 0.15s; }
+        .tool-card:hover { border-color: var(--primary-accent); }
+        .tool-card:hover svg { color: var(--primary-accent); }
         
         /* 右侧问答智域 */
         .right-pane { 
@@ -374,7 +405,7 @@
         }
     </style>
     <!-- Add i18n support -->
-    <script src="/static/js/i18n.js?v=2026071001"></script>
+    <script src="/static/js/i18n.js?v=20260822fix1"></script>
     <!-- Add marked.js for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
@@ -401,49 +432,65 @@
     <style>.paperfect-embedded .chat-back-home-btn { display: none !important; }</style>
     <!-- 全局主控栏（顶部导航排版条） -->
     {% if is_paper %}
-    <div class="layout-controls" style="position: relative;">
+    <div class="layout-controls">
         <!-- 返回主界面按钮 -->
-        <button class="layout-btn chat-back-home-btn" style="position: absolute; left: 20px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
+        <button class="layout-btn chat-back-home-btn" onclick="window.location.href='/'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span data-i18n="chat.back">返回主页</span>
         </button>
-        
-        <label class="layout-btn active" id="btn-sync-scroll" style="display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="sync-scroll-checkbox" checked style="margin: 0; cursor: pointer;">
+
+        <div class="toolbar-divider"></div>
+
+        <label class="layout-btn toggle-chip active" id="btn-sync-scroll">
+            <input type="checkbox" id="sync-scroll-checkbox" checked>
             <span id="sync-scroll-text" data-i18n="chat.sync_scroll_on">滚动同步: 开</span>
         </label>
 
-        <button class="layout-btn active" id="btn-layout-orig" onclick="togglePane('original')" data-i18n="chat.original">原文</button>
-        <button class="layout-btn" id="btn-layout-anno" onclick="togglePane('annotated')" data-i18n="chat.annotated">AI标注</button>
-        <button class="layout-btn" id="btn-layout-trans" onclick="togglePane('translated')" data-i18n="chat.translated">翻译</button>
-        <button class="layout-btn" id="btn-layout-ppt" onclick="togglePane('ppt')" data-i18n="chat.ppt">PPT</button>
-        <button class="layout-btn" id="btn-layout-realtime" onclick="togglePane('realtime')" data-i18n="chat.realtime">实时翻译</button>
-        <button class="layout-btn active" id="btn-layout-chat" onclick="togglePane('chat')" data-i18n="chat.ai">AI</button>
-        <div class="layout-btn" id="tools-menu-wrap" style="position:relative;">
-            <button class="layout-btn" id="btn-tools" data-i18n="chat.tools">工具</button>
-            <div id="tools-dropdown" style="display:none;position:absolute;right:0;top:110%;min-width:220px;background:var(--pane-bg);border:1px solid var(--pane-border);border-radius:10px;padding:8px;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.25);">
-                <div style="font-size:11px;color:var(--text-muted);margin:4px 8px;">DPI</div>
-                <input id="export-dpi" type="number" value="300" min="72" max="600" style="width:90%;margin:0 8px 8px;padding:4px 6px;">
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('images')" data-i18n="chat.tool_pages">导出页面为图片</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('figures')" data-i18n="chat.tool_figures">导出论文配图</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('docx')" data-i18n="chat.tool_docx">转为 Word</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('md')" data-i18n="chat.tool_md">导出 Markdown</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('tex')" data-i18n="chat.tool_tex">导出 LaTeX</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('ocr')" data-i18n="chat.tool_ocr">OCR 可检索 PDF</button>
-                <div style="border-top:1px solid var(--pane-border);margin:8px 0;"></div>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('rotate')" data-i18n="chat.tool_rotate">旋转 PDF</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('split')" data-i18n="chat.tool_split">提取页面范围</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('compress')" data-i18n="chat.tool_compress">压缩 PDF</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('watermark')" data-i18n="chat.tool_watermark">添加水印</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('protect')" data-i18n="chat.tool_protect">加密 PDF</button>
-                <button class="layout-btn" style="width:100%;margin:3px 0;" onclick="runPaperTool('unlock')" data-i18n="chat.tool_unlock">解密 PDF</button>
+        <div class="toolbar-divider"></div>
+
+        <div class="view-switch">
+            <button class="view-btn active" id="btn-layout-orig" onclick="togglePane('original')">
+                <span data-i18n="chat.original">原文</span>
+            </button>
+            <button class="view-btn" id="btn-layout-anno" onclick="togglePane('annotated')">
+                <span data-i18n="chat.annotated">AI标注</span>
+            </button>
+            <button class="view-btn" id="btn-layout-trans" onclick="togglePane('translated')">
+                <span data-i18n="chat.translated">翻译</span>
+            </button>
+            <button class="view-btn" id="btn-layout-ppt" onclick="togglePane('ppt')">
+                <span data-i18n="chat.ppt">PPT</span>
+            </button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <button class="layout-btn toggle-chip" id="btn-layout-realtime" onclick="togglePane('realtime')">
+            <span data-i18n="chat.realtime">实时翻译</span>
+        </button>
+        <button class="layout-btn toggle-chip active" id="btn-layout-chat" onclick="togglePane('chat')">
+            <span data-i18n="chat.ai">AI</span>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="tools-wrap" id="tools-menu-wrap">
+            <button class="layout-btn icon-btn-pill" id="btn-tools">
+                <span data-i18n="chat.tools">工具</span>
+            </button>
+            <div id="tools-dropdown" class="tool-panel">
+                <div class="tool-panel-dpi">
+                    <label data-i18n="chat.tool_dpi_label">导出 DPI</label>
+                    <input id="export-dpi" type="number" value="300" min="72" max="600">
+                </div>
+                <div class="tool-grid" id="chat-tool-grid"></div>
             </div>
         </div>
     </div>
     {% else %}
     <div class="layout-controls" style="justify-content: flex-start;">
         <!-- 返回主界面按钮 -->
-        <button class="layout-btn chat-back-home-btn" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; display: flex; align-items: center; gap: 5px;" onclick="window.location.href='/'">
+        <button class="layout-btn chat-back-home-btn" onclick="window.location.href='/'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span data-i18n="chat.back">返回主页</span>
         </button>
@@ -547,6 +594,7 @@
 
     <script src="/static/js/pdf_sync.js"></script>
     <script src="/static/js/realtime_trans.js?v=4"></script>
+    <script src="/static/js/tool_icons.js"></script>
     <script>
         // PPT Page Mapping & Slide Change Sync Listener
         // page_mapping keys are slide indices (strings); values are 1-based PDF page numbers.
@@ -599,12 +647,28 @@
         });
 
         // Check theme setup from homepage preference
-        let activeTheme = localStorage.getItem('theme') || 'antigravity';
-        if (activeTheme === 'light') activeTheme = 'cyan-light';
-        if (activeTheme === 'dark' || activeTheme === 'github-dark') activeTheme = 'antigravity';
-        if (activeTheme === 'github-light') activeTheme = 'cyan-light';
+        function normalizeTheme(t) {
+            t = t || 'antigravity';
+            if (t === 'light') t = 'cyan-light';
+            if (t === 'dark' || t === 'github-dark') t = 'antigravity';
+            if (t === 'github-light') t = 'cyan-light';
+            return t;
+        }
+        let activeTheme = normalizeTheme(localStorage.getItem('theme'));
         document.body.setAttribute('data-theme', activeTheme);
         localStorage.setItem('theme', activeTheme);
+
+        // This page is normally embedded as an iframe inside the library's tabbed
+        // reader; switching theme there only updates the parent document, so a
+        // tab opened before the switch was stuck on its original theme forever.
+        // Same-origin localStorage writes fire a native 'storage' event in every
+        // OTHER window/frame -- listen for it here to stay in sync live.
+        window.addEventListener('storage', (e) => {
+            if (e.key !== 'theme' || e.newValue == null) return;
+            activeTheme = normalizeTheme(e.newValue);
+            document.documentElement.setAttribute('data-theme', activeTheme);
+            document.body.setAttribute('data-theme', activeTheme);
+        });
         
         const storeKey = "chat_histories_{{ book_name }}";
         let chatHistory = []; // current context
@@ -703,9 +767,9 @@
             }
             const url = endpoints[kind];
             if (!url) return;
-            const btn = document.getElementById('btn-tools');
-            const old = btn ? btn.textContent : '';
-            if (btn) btn.textContent = '...';
+            const label = document.querySelector('#btn-tools [data-i18n="chat.tools"]');
+            const old = label ? label.textContent : '';
+            if (label) label.textContent = '...';
             try {
                 const res = await fetch(url, { method: 'POST' });
                 const data = await res.json().catch(() => ({}));
@@ -718,7 +782,7 @@
             } catch (e) {
                 alert(e.message || String(e));
             } finally {
-                if (btn) btn.textContent = old || '工具';
+                if (label) label.textContent = old || t('chat.tools');
                 const dd = document.getElementById('tools-dropdown');
                 if (dd) dd.style.display = 'none';
             }
@@ -1013,10 +1077,42 @@
         }
 
         // On Load Init
+        const CHAT_TOOL_LIST = [
+            { id: 'images', icon: 'images', label: 'chat.tool_pages' },
+            { id: 'figures', icon: 'figures', label: 'chat.tool_figures' },
+            { id: 'docx', icon: 'docx', label: 'chat.tool_docx' },
+            { id: 'md', icon: 'md', label: 'chat.tool_md' },
+            { id: 'tex', icon: 'tex', label: 'chat.tool_tex' },
+            { id: 'ocr', icon: 'ocr', label: 'chat.tool_ocr' },
+            { id: 'rotate', icon: 'rotate', label: 'chat.tool_rotate' },
+            { id: 'split', icon: 'split', label: 'chat.tool_split' },
+            { id: 'compress', icon: 'compress', label: 'chat.tool_compress' },
+            { id: 'watermark', icon: 'watermark', label: 'chat.tool_watermark' },
+            { id: 'protect', icon: 'protect', label: 'chat.tool_protect' },
+            { id: 'unlock', icon: 'unlock', label: 'chat.tool_unlock' },
+        ];
+
+        function initToolbarIcons() {
+            const icons = window.PAPERFECT_TOOL_ICONS || {};
+            document.querySelectorAll('.btn-ic[data-icon]').forEach(el => {
+                el.innerHTML = icons[el.getAttribute('data-icon')] || '';
+            });
+            const grid = document.getElementById('chat-tool-grid');
+            if (grid) {
+                grid.innerHTML = CHAT_TOOL_LIST.map(tool => `
+                    <div class="tool-card" onclick="runPaperTool('${tool.id}')" title="${t(tool.label)}">
+                        ${icons[tool.icon] || ''}
+                        <span data-i18n="${tool.label}">${t(tool.label)}</span>
+                    </div>
+                `).join('');
+            }
+        }
+
         window.addEventListener("DOMContentLoaded", () => {
             initChat();
             updateResizers();
             applyPageTranslations();
+            initToolbarIcons();
 
             // Initialize PDF Scroll Synchronization
             const syncManager = new PdfScrollSyncManager();
@@ -1039,7 +1135,7 @@
                 const dd = document.getElementById('tools-dropdown');
                 if (!wrap || !dd) return;
                 if (!wrap.contains(e.target)) dd.style.display = 'none';
-                else if (e.target.id === 'btn-tools') dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+                else if (e.target.closest('#btn-tools')) dd.style.display = dd.style.display === 'flex' ? 'none' : 'flex';
             });
 
             // Handle Sync Toggle

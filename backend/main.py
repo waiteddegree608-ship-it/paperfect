@@ -219,7 +219,10 @@ def auto_heal_empty_abstracts():
                     (Document.paper_type.is_(None)) |
                     (Document.year.is_(None)) |
                     (Document.year == "") |
-                    (Document.venue.ilike("%arxiv%"))
+                    (Document.venue.ilike("%arxiv%")) |
+                    (Document.zh_title.is_(None)) |
+                    (Document.zh_title == "") |
+                    (Document.zh_title == Document.title)
                 ).all()
             ]
         except Exception as e:
@@ -308,6 +311,25 @@ if __name__ == "__main__":
 
         time.sleep(1.2)
 
+        # Give this process its own taskbar identity so Windows shows the
+        # Paperfect icon instead of grouping it under python.exe's icon.
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("com.paperfect.app")
+            except Exception:
+                pass
+
+        from backend.core.config import get_base_dir
+        app_icon = None
+        for candidate in (
+            os.path.join(get_base_dir(), "frontend", "static", "app_icon.ico"),
+            os.path.join(get_base_dir(), "build", "icon.ico"),
+        ):
+            if os.path.isfile(candidate):
+                app_icon = candidate
+                break
+
         import webview
         webview.create_window(
             "Paperfect AI Academic Assistant",
@@ -316,4 +338,4 @@ if __name__ == "__main__":
             height=768,
             min_size=(1024, 700),
         )
-        webview.start()
+        webview.start(icon=app_icon)

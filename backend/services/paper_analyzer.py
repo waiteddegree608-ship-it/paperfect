@@ -193,42 +193,55 @@ def _extract_json_object(text: str):
 
 
 def apply_analysis_to_document(db, doc, analysis):
-    """Write analyzer result onto a Document. Metadata is committed even if tags collide."""
+    """Write analyzer result onto a Document. Metadata is committed even if tags collide.
+
+    When `analysis` is a filename-derived stub (see `_is_fallback` in analyze_paper,
+    produced when there is no API key or every LLM attempt failed), we only ever
+    fill in fields that are currently empty on `doc` -- we never let a failed
+    retry/re-heal downgrade previously-good metadata (title/venue/abstract/...)
+    back to a bare filename or "Unknown".
+    """
     from backend.models.database import Tag
     if not doc or not analysis:
         return
+    is_fallback = bool(analysis.get("_is_fallback"))
+
+    def _blocked(current):
+        # In fallback mode, skip fields that already hold real data.
+        return is_fallback and bool(current)
+
     en_title = analysis.get("en_title")
-    if en_title and en_title != "Unknown Title":
+    if en_title and en_title != "Unknown Title" and not _blocked(doc.title):
         doc.title = en_title
-    if analysis.get("zh_title"):
+    if analysis.get("zh_title") and not _blocked(doc.zh_title):
         doc.zh_title = analysis.get("zh_title")
-    if analysis.get("venue"):
+    if analysis.get("venue") and not _blocked(doc.venue):
         doc.venue = analysis.get("venue")
-    if analysis.get("paper_type"):
+    if analysis.get("paper_type") and not _blocked(doc.paper_type):
         doc.paper_type = analysis.get("paper_type")
-    if analysis.get("jcr_partition") is not None:
+    if analysis.get("jcr_partition") is not None and not _blocked(doc.jcr_partition):
         doc.jcr_partition = analysis.get("jcr_partition") or ""
-    if analysis.get("ccf_partition") is not None:
+    if analysis.get("ccf_partition") is not None and not _blocked(doc.ccf_partition):
         doc.ccf_partition = analysis.get("ccf_partition") or ""
-    if analysis.get("core_type") is not None:
+    if analysis.get("core_type") is not None and not _blocked(doc.core_type):
         doc.core_type = analysis.get("core_type") or ""
     f_val = analysis.get("research_field", "")
-    if f_val:
+    if f_val and not _blocked(doc.research_field):
         doc.research_field = json.dumps(f_val, ensure_ascii=False) if isinstance(f_val, dict) else str(f_val)
     d_val = analysis.get("research_direction", "")
-    if d_val:
+    if d_val and not _blocked(doc.research_direction):
         doc.research_direction = json.dumps(d_val, ensure_ascii=False) if isinstance(d_val, dict) else str(d_val)
-    if analysis.get("abstract"):
+    if analysis.get("abstract") and not _blocked(doc.abstract):
         doc.abstract = analysis.get("abstract")
-    if analysis.get("en_abstract"):
+    if analysis.get("en_abstract") and not _blocked(doc.en_abstract):
         doc.en_abstract = analysis.get("en_abstract")
-    if analysis.get("en_keywords") is not None:
+    if analysis.get("en_keywords") is not None and not _blocked(doc.en_keywords):
         doc.en_keywords = json.dumps(analysis.get("en_keywords") or [], ensure_ascii=False)
-    if analysis.get("authors") is not None:
+    if analysis.get("authors") is not None and not _blocked(doc.authors):
         doc.authors = json.dumps(analysis.get("authors") or [], ensure_ascii=False)
-    if analysis.get("year"):
+    if analysis.get("year") and not _blocked(doc.year):
         doc.year = str(analysis.get("year"))
-    if analysis.get("doi"):
+    if analysis.get("doi") and not _blocked(doc.doi):
         doc.doi = analysis.get("doi")
     db.commit()
 
@@ -374,7 +387,11 @@ def analyze_paper(pdf_path: str):
         "en_abstract": local_abstract,
         "keywords": [],
         "zh_keywords": [],
-        "en_keywords": []
+        "en_keywords": [],
+        # Marks this as a low-quality stub (filename-derived) result so callers
+        # (see apply_analysis_to_document) never let it clobber previously-good
+        # metadata on a re-heal/retry of an already-analyzed document.
+        "_is_fallback": True,
     }
     
     if not api_key:

@@ -1054,7 +1054,7 @@ const GraphView = {
             </div>
             <div style="flex:1;overflow:auto;padding:18px;" v-if="lineage">
                 <div class="lineage-hero-banner">
-                    <div v-if="lineage.dossier && lineage.dossier.hero_figure" class="lineage-hero-bg" :style="{backgroundImage: 'url(\'' + lineage.dossier.hero_figure.url + '\')'}"></div>
+                    <div v-if="lineage.dossier && lineage.dossier.hero_figure" class="lineage-hero-bg" :style="{backgroundImage: 'url(' + lineage.dossier.hero_figure.url + ')'}"></div>
                     <div class="lineage-hero-content">
                         <h3 style="margin:0 0 6px;">{{ lineage.document.zh_title || lineage.document.title }}</h3>
                         <div style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">
@@ -1070,7 +1070,7 @@ const GraphView = {
                     <div>
                         <h4>{{ t('auto.lineage_related') }}</h4>
                         <div v-if="!(lineage.related||[]).length" style="color:var(--text-muted);">{{ t('auto.lineage_empty') }}</div>
-                        <div v-for="r in lineage.related" :key="'rel'+r.id" class="lineage-related-card" :style="r.hero_url ? {backgroundImage: 'url(\'' + r.hero_url + '\')'} : {}" @click="selectById(r.id)">
+                        <div v-for="r in lineage.related" :key="'rel'+r.id" class="lineage-related-card" :style="r.hero_url ? {backgroundImage: 'url(' + r.hero_url + ')'} : {}" @click="selectById(r.id)">
                             <div class="lineage-related-card-overlay"></div>
                             <div class="lineage-related-card-content">
                                 <div class="lineage-related-title">{{ r.zh_title || r.title }}</div>
@@ -1152,9 +1152,9 @@ const SearchView = {
         <div style="display:flex; height: 100%; width: 100%; overflow: hidden;">
             <!-- Left Pane: Search Results -->
             <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 2px solid var(--header-border);">
-                <div v-if="loading" style="text-align: center; color: var(--text-muted); margin-top: 50px;">
-                    <div style="margin-bottom: 10px; font-size: 16px;">AI 正在思考并检索知识库，请稍候...</div>
-                    <div style="font-size: 13px; opacity: 0.7;">（如果文献较多或需要深入阅读，可能需要10-20秒）</div>
+                <div v-if="loading" style="display:flex; flex-direction:column; align-items:center; gap:12px; color: var(--text-muted); margin-top: 60px;">
+                    <div class="pf-spinner"></div>
+                    <div style="font-size: 14px;">AI检索中</div>
                 </div>
                 <div v-else-if="results.length > 0">
                     <div style="font-size: 14px; color: var(--text-muted); margin-bottom: 15px;">共找到 {{ results.length }} 篇相关文献：</div>
@@ -1616,8 +1616,7 @@ const app = createApp({
             try {
                 const res = await fetch('/api/config');
                 const cfg = await res.json();
-                document.getElementById('parse_api_url').value = cfg.parse_api_url || 'https://opencode.ai/zen/go/v1';
-                
+
                 const keyList = document.getElementById('parse_api_key_list');
                 if (keyList) {
                     keyList.innerHTML = '';
@@ -1625,12 +1624,6 @@ const app = createApp({
                     if (typeof parseKeys === 'string') parseKeys = parseKeys.split(',');
                     if (parseKeys.length === 0) parseKeys = [''];
                     parseKeys.forEach(k => window.addParseKeyInput(k.trim()));
-                }
-
-                document.getElementById('parse_model').value = cfg.parse_model || 'qwen3.7-plus';
-                const textEl = document.getElementById('text_model');
-                if (textEl) {
-                    textEl.value = cfg.translate_model || cfg.chat_model || cfg.parse_model || 'qwen3.7-plus';
                 }
             } catch (e) {
                 console.error("加载配置失败", e);
@@ -1963,7 +1956,26 @@ const app = createApp({
         };
 
         // ---- Toolbox: run PDF tools on any document(s) without opening the reader ----
+        const TOOLBOX_TOOLS = [
+            { id: 'images', icon: 'images', label: 'chat.tool_pages' },
+            { id: 'figures', icon: 'figures', label: 'chat.tool_figures' },
+            { id: 'docx', icon: 'docx', label: 'chat.tool_docx' },
+            { id: 'md', icon: 'md', label: 'chat.tool_md' },
+            { id: 'tex', icon: 'tex', label: 'chat.tool_tex' },
+            { id: 'ocr', icon: 'ocr', label: 'chat.tool_ocr' },
+            { id: 'rotate', icon: 'rotate', label: 'chat.tool_rotate' },
+            { id: 'split', icon: 'split', label: 'chat.tool_split' },
+            { id: 'compress', icon: 'compress', label: 'chat.tool_compress' },
+            { id: 'watermark', icon: 'watermark', label: 'chat.tool_watermark' },
+            { id: 'protect', icon: 'protect', label: 'chat.tool_protect' },
+            { id: 'unlock', icon: 'unlock', label: 'chat.tool_unlock' },
+            { id: 'merge', icon: 'merge', label: 'toolbox.tool_merge' },
+        ];
         let toolboxDocs = [];
+        let toolboxTool = 'images';
+        // Local (not-in-library) uploads survive modal close/reopen within this
+        // page session so the user doesn't lose them by accidentally closing it.
+        let toolboxLocalFiles = {};
         const toolboxSelected = new Set();
 
         const renderToolboxDocs = (filterText) => {
@@ -2005,22 +2017,102 @@ const app = createApp({
             watermark: '<label data-i18n="toolbox.wm_text">水印文字</label><input type="text" id="tb-text" placeholder="Paperfect" value="Paperfect">',
             protect: '<label data-i18n="toolbox.password">设置密码</label><input type="text" id="tb-password" placeholder="password">',
             unlock: '<label data-i18n="toolbox.password_current">当前密码（无则留空）</label><input type="text" id="tb-password" placeholder="">',
-            merge: '<div style="font-size:12px;color:var(--text-muted);" data-i18n="toolbox.merge_hint">请在上方勾选 2 篇及以上文献，将按勾选顺序合并为一个 PDF。</div>',
+            merge: '',
         };
 
-        window.onToolboxToolChange = () => {
-            const sel = document.getElementById('toolbox-tool-select');
+        const renderToolboxToolGrid = () => {
+            const grid = document.getElementById('toolbox-tool-grid');
+            if (!grid) return;
+            const icons = window.PAPERFECT_TOOL_ICONS || {};
+            grid.innerHTML = TOOLBOX_TOOLS.map(tool => `
+                <div class="tb-tool-card${tool.id === toolboxTool ? ' active' : ''}" data-tool="${tool.id}" onclick="window.selectToolboxTool('${tool.id}')" title="${translate(tool.label)}">
+                    ${icons[tool.icon] || ''}
+                    <span data-i18n="${tool.label}">${translate(tool.label)}</span>
+                </div>
+            `).join('');
+        };
+
+        const renderToolboxParams = () => {
             const wrap = document.getElementById('toolbox-params');
-            if (!sel || !wrap) return;
-            wrap.innerHTML = TOOLBOX_PARAM_HTML[sel.value] || '';
+            if (!wrap) return;
+            wrap.innerHTML = TOOLBOX_PARAM_HTML[toolboxTool] || '';
             document.querySelectorAll('#toolbox-params [data-i18n]').forEach(el => {
                 el.textContent = translate(el.getAttribute('data-i18n'));
+            });
+        };
+
+        window.selectToolboxTool = (toolId) => {
+            toolboxTool = toolId;
+            renderToolboxToolGrid();
+            renderToolboxParams();
+        };
+
+        const renderToolboxLocalFiles = () => {
+            const box = document.getElementById('toolbox-local-list');
+            if (!box) return;
+            const icons = window.PAPERFECT_TOOL_ICONS || {};
+            const entries = Object.entries(toolboxLocalFiles);
+            box.innerHTML = entries.map(([book, name]) => `
+                <div class="tb-local-item">
+                    <span class="tb-ic">${icons.docx || ''}</span>
+                    <span class="tb-name" title="${name}">${name}</span>
+                    <span class="tb-remove" data-book="${book}" onclick="window.onToolboxRemoveLocal(this)" title="${translate('toolbox.remove_local') || '移除'}">${icons.close || '&times;'}</span>
+                </div>
+            `).join('');
+        };
+
+        window.onToolboxRemoveLocal = async (el) => {
+            const book = el.getAttribute('data-book');
+            delete toolboxLocalFiles[book];
+            toolboxSelected.delete(book);
+            renderToolboxLocalFiles();
+            try { await fetch(`/api/tools/upload/${encodeURIComponent(book)}`, { method: 'DELETE' }); } catch (e) { /* best-effort cleanup */ }
+        };
+
+        const uploadToolboxFile = async (file) => {
+            if (!file || !/\.pdf$/i.test(file.name)) return;
+            const resultBox = document.getElementById('toolbox-result');
+            const fd = new FormData();
+            fd.append('file', file);
+            try {
+                const res = await fetch('/api/tools/upload', { method: 'POST', body: fd });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+                toolboxLocalFiles[data.book_name] = data.display_name || file.name;
+                toolboxSelected.add(data.book_name);
+                renderToolboxLocalFiles();
+            } catch (e) {
+                if (resultBox) resultBox.textContent = (translate('toolbox.upload_failed') || '上传失败：') + (e.message || e);
+            }
+        };
+
+        const initToolboxDropzone = () => {
+            const zone = document.getElementById('toolbox-dropzone');
+            const input = document.getElementById('toolbox-file-input');
+            const icon = document.getElementById('tb-dropzone-icon');
+            if (icon && window.PAPERFECT_TOOL_ICONS) icon.innerHTML = window.PAPERFECT_TOOL_ICONS.upload || '';
+            if (!zone || !input || zone.dataset.bound) return;
+            zone.dataset.bound = '1';
+            zone.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => {
+                Array.from(input.files || []).forEach(uploadToolboxFile);
+                input.value = '';
+            });
+            ['dragenter', 'dragover'].forEach(evt => zone.addEventListener(evt, (e) => {
+                e.preventDefault(); e.stopPropagation(); zone.classList.add('dragover');
+            }));
+            ['dragleave', 'drop'].forEach(evt => zone.addEventListener(evt, (e) => {
+                e.preventDefault(); e.stopPropagation(); zone.classList.remove('dragover');
+            }));
+            zone.addEventListener('drop', (e) => {
+                Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach(uploadToolboxFile);
             });
         };
 
         const openToolbox = async () => {
             document.getElementById('toolboxModal').classList.add('active');
             toolboxSelected.clear();
+            Object.keys(toolboxLocalFiles).forEach(b => toolboxSelected.add(b));
             const search = document.getElementById('toolbox-doc-search');
             if (search) {
                 search.value = '';
@@ -2035,11 +2127,14 @@ const app = createApp({
                 toolboxDocs = [];
             }
             renderToolboxDocs('');
-            window.onToolboxToolChange();
+            renderToolboxLocalFiles();
+            initToolboxDropzone();
+            renderToolboxToolGrid();
+            renderToolboxParams();
         };
 
         window.runToolboxTool = async () => {
-            const tool = (document.getElementById('toolbox-tool-select') || {}).value;
+            const tool = toolboxTool;
             const books = Array.from(toolboxSelected);
             const resultBox = document.getElementById('toolbox-result');
             const btn = document.getElementById('toolboxRunBtn');
@@ -2121,31 +2216,15 @@ const app = createApp({
             try {
                 const keyInputs = document.querySelectorAll('.parse-key-input');
                 const parseKeysArray = Array.from(keyInputs).map(inp => inp.value.trim()).filter(v => v);
-                const apiUrl = document.getElementById('parse_api_url').value.trim();
-                const modelName = document.getElementById('parse_model').value.trim();
-                const textRaw = (document.getElementById('text_model') || {}).value || '';
-                const textModel = textRaw.trim() || modelName;
 
+                // Base URL and model are fixed by us — the customer can only
+                // ever supply their own API key(s), reused across every task.
                 const payload = {
-                    parse_api_url: apiUrl,
                     parse_api_key: parseKeysArray,
-                    parse_model: modelName,
-                    
-                    chat_api_url: apiUrl,
                     chat_api_key: parseKeysArray,
-                    chat_model: textModel,
-                    
-                    paper_api_url: apiUrl,
                     paper_api_key: parseKeysArray,
-                    paper_model: modelName,
-                    
-                    annotator_api_url: apiUrl,
                     annotator_api_key: parseKeysArray,
-                    annotator_model: textModel,
-                    
-                    translate_api_url: apiUrl,
                     translate_api_key: parseKeysArray,
-                    translate_model: textModel
                 };
                 await fetch('/api/config', {
                     method: 'POST',

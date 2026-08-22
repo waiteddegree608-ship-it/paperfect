@@ -520,6 +520,44 @@ class UniversalSearchRequest(BaseModel):
     chat_history: list
     lang: str = "zh"
 
+_CJK_RUN_RE = re.compile(r'[\u4e00-\u9fff]+')
+# Some gateways/models (e.g. mimo) emulate tool-calling by writing this literal
+# tag soup into plain message content instead of populating message.tool_calls.
+_TEXT_TOOL_CALL_RE = re.compile(r"<tool_call>\s*<function=([\w_]+)>(.*?)</function>\s*</tool_call>", re.DOTALL | re.IGNORECASE)
+_TEXT_TOOL_PARAM_RE = re.compile(r"<parameter=([\w_]+)>(.*?)</parameter>", re.DOTALL)
+
+
+def _query_tokens(q_low: str) -> list:
+    """Tokenize a (lowercased) query for substring scoring against document
+    text. Handles space-separated languages normally, and additionally emits
+    sliding-window bigrams for CJK runs so un-spaced Chinese phrases (e.g.
+    "负泊松比材料") still get partial credit against document text — we don't
+    have a real Chinese word segmenter available."""
+    tokens = [t for t in re.split(r"[\s,;，。、\-]+", q_low) if len(t) >= 2]
+    for run in _CJK_RUN_RE.findall(q_low):
+        if len(run) <= 2:
+            tokens.append(run)
+        else:
+            tokens.extend(run[i:i + 2] for i in range(len(run) - 1))
+    stop = {"我想", "找", "关于", "的", "论文", "文献", "please", "find", "papers",
+            "about", "the", "ccf", "帮我", "一下", "找一", "一篇", "相关"}
+    return [t for t in tokens if t not in stop]
+
+
+def _strip_text_tool_calls(text: str) -> str:
+    return _TEXT_TOOL_CALL_RE.sub("", text or "").strip()
+
+
+def _parse_text_tool_calls(text: str) -> list:
+    calls = []
+    for m in _TEXT_TOOL_CALL_RE.finditer(text or ""):
+        args = {}
+        for pm in _TEXT_TOOL_PARAM_RE.finditer(m.group(2)):
+            args[pm.group(1).strip()] = pm.group(2).strip()
+        calls.append({"id": f"textcall_{len(calls)}", "name": m.group(1).strip(), "arguments": args})
+    return calls
+
+
 def extract_json(text: str):
     try:
         return json.loads(text)
@@ -566,9 +604,11 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
         want_ccf = m.group(1).upper()
     want_review = bool(re.search(r"综述|survey|review", q_low))
     want_research = bool(re.search(r"研究论文|research paper", q_low)) and not want_review
-    tokens = [t for t in re.split(r"[\s,;，。]+", q_low) if len(t) >= 2]
-    stop = {"我想", "找", "关于", "的", "论文", "文献", "please", "find", "papers", "about", "the", "ccf"}
-    tokens = [t for t in tokens if t not in stop]
+    tokens = _query_tokens(q_low)
+    # CJK bigrams are noisy (lots of coincidental 2-char matches), so weight
+    # them lower than "real" tokens (whole words / >=3-char runs).
+    strong_tokens = [t for t in tokens if len(t) >= 3 or not _CJK_RUN_RE.fullmatch(t)]
+    weak_tokens = [t for t in tokens if t not in strong_tokens]
 
     for d in docs:
         h = hay(d)
@@ -579,13 +619,25 @@ def universal_search(req: UniversalSearchRequest, db: Session = Depends(get_db))
             score += 4
         if want_research and (d.paper_type or "") == "研究":
             score += 2
-        for t in tokens:
+        for t in strong_tokens:
             if t in h:
-                score += 2
+                score += 3
+        for t in weak_tokens:
+            if t in h:
+                score += 1
         if score > 0:
             scored.append((score, d))
     scored.sort(key=lambda x: -x[0])
-    candidates = [d for _, d in scored[:18]] if scored else docs[:18]
+    # Small libraries: just hand the whole catalog to the LLM instead of
+    # trusting a fragile keyword prefilter (which fails badly on natural-
+    # language / un-spaced Chinese queries and can silently drop the only
+    # relevant paper). Larger libraries fall back to the scored top-N.
+    if len(docs) <= 60:
+        candidates = docs
+    elif scored:
+        candidates = [d for _, d in scored[:30]]
+    else:
+        candidates = docs[:30]
 
     catalog_lines = []
     doc_lookup = {d.id: d for d in docs}
@@ -709,31 +761,49 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
                 **({"extra_body": chat_extra} if (chat_extra and iteration == 0) else {}),
             )
             message = response.choices[0].message
-            if message.tool_calls:
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": strip_think(message.content or ""),
-                    "tool_calls": [
+            raw_content = strip_think(message.content or "")
+            native_calls = message.tool_calls or []
+            # Fallback: some gateways/models (e.g. mimo) never populate
+            # message.tool_calls and instead emit <tool_call> tag soup as
+            # plain content. Detect and handle that the same way so it never
+            # leaks straight into the user-facing reply. Only honor this on
+            # rounds where tools were actually offered — on the final,
+            # forced-answer round (current_tools is None) a hallucinated tag
+            # must be ignored/stripped rather than looped on again, or a
+            # stubborn model can burn through every remaining iteration.
+            text_calls = [] if (native_calls or current_tools is None) else _parse_text_tool_calls(raw_content)
+
+            if native_calls or text_calls:
+                assistant_msg = {"role": "assistant", "content": _strip_text_tool_calls(raw_content)}
+                if native_calls:
+                    assistant_msg["tool_calls"] = [
                         {
                             "id": t.id,
                             "type": "function",
                             "function": {"name": t.function.name, "arguments": t.function.arguments},
                         }
-                        for t in message.tool_calls
-                    ],
-                }
+                        for t in native_calls
+                    ]
                 messages.append(assistant_msg)
-                for tool_call in message.tool_calls:
-                    if tool_call.function.name == "search_paper_knowledge_base":
+
+                run_calls = (
+                    [{"id": t.id, "name": t.function.name, "arguments": t.function.arguments} for t in native_calls]
+                    if native_calls else
+                    [{"id": c["id"], "name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)} for c in text_calls]
+                )
+                for call in run_calls:
+                    doc_id = None
+                    if call["name"] == "search_paper_knowledge_base":
                         try:
-                            args = json.loads(tool_call.function.arguments)
+                            raw_args = call["arguments"]
+                            args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
                             doc_id = args.get("document_id")
-                            query = args.get("query", "")
-                            doc = db.query(Document).filter(Document.id == doc_id).first()
+                            query = args.get("query", "") or ""
+                            doc = db.query(Document).filter(Document.id == doc_id).first() if doc_id is not None else None
                             if doc:
-                                name_without_ext = doc.original_filename.replace(".pdf", "")
-                                item_info = get_item_by_name(name_without_ext)
-                                if item_info and item_info["kb_path"]:
+                                name_without_ext = (doc.original_filename or doc.title or "").replace(".pdf", "")
+                                item_info = get_item_by_name(name_without_ext) if name_without_ext else None
+                                if item_info and item_info.get("kb_path"):
                                     rag_result = simple_rag_search(item_info["kb_path"], query)
                                     tool_result = (rag_result[:1600] + "...") if rag_result and len(rag_result) > 1600 else (rag_result or "未找到相关信息。")
                                 else:
@@ -742,13 +812,23 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
                                 tool_result = "未找到该文献。"
                         except Exception as e:
                             tool_result = f"工具执行出错: {str(e)}"
-                        tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:600]}")
+                    else:
+                        tool_result = "未知工具调用，已忽略。"
+                    tool_results_summary.append(f"[文献{doc_id}检索结果]: {tool_result[:600]}")
+                    if native_calls:
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_call.function.name,
+                            "tool_call_id": call["id"],
+                            "name": call["name"],
                             "content": tool_result,
                         })
+                    else:
+                        # No real tool_call_id pairing exists for the emulated
+                        # text-based call — feed the result back as a plain
+                        # message instead of a 'tool' role, since some
+                        # gateways validate tool role messages strictly.
+                        messages.append({"role": "user", "content": f"[工具结果] {tool_result}"})
+
                 total_content_len = sum(len(str(m.get("content", ""))) for m in messages)
                 if total_content_len > 24000:
                     summary = "\n".join(tool_results_summary)
@@ -758,7 +838,7 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
                     ]
                 continue
 
-            content = strip_think(message.content or "")
+            content = _strip_text_tool_calls(raw_content)
             parsed = extract_json(content)
             if parsed and "name" in parsed and "arguments" in parsed:
                 continue
@@ -774,10 +854,20 @@ document_ids 必须是候选列表中的整数 ID。找不到就空列表。"""
             if not doc_ids:
                 doc_ids = fallback_ids
             packed = pack_docs(doc_ids) or pack_docs(fallback_ids)
-            if not reply:
+            if not reply or not reply.strip():
                 reply = "已根据你的条件筛选出下列文献。" if req.lang != "en" else "Here are the matching papers."
             return {"reply": reply, "documents": packed}
-        except Exception as e:
-            return {"reply": f"系统错误：{str(e)}", "documents": pack_docs(fallback_ids)}
+        except Exception:
+            # Log the full traceback server-side for debugging, but never
+            # leak a raw Python exception string into the chat UI.
+            import traceback
+            traceback.print_exc()
+            reply = "抱歉，检索时出现了问题，已为你返回本地初筛结果。" if req.lang != "en" else "Sorry, something went wrong during search — showing local pre-filtered results instead."
+            try:
+                packed = pack_docs(fallback_ids)
+            except Exception:
+                traceback.print_exc()
+                packed = []
+            return {"reply": reply, "documents": packed}
 
     return {"reply": "未能完成检索，已返回本地预筛选结果。", "documents": pack_docs(fallback_ids)}

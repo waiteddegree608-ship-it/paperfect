@@ -321,10 +321,8 @@ def write_user_readme(setup: Path) -> None:
 1. 双击 **Paperfect-Setup-*.exe**
 2. 选择安装目录（默认可改）
 3. 完成安装后可从桌面快捷方式或开始菜单启动 **Paperfect**
-4. 首次启动打开 **系统配置 / Settings**，填写：
-   - API Base URL
-   - API Key（可多个，逗号或界面多行）
-   - 模型名称  
+4. 首次启动打开 **账户设置**，填写你的 **API Key**（可添加多个，自动轮询并发）
+   API 地址与模型已由官方预先配置好，无需（也无法）自行修改。
    保存后即可上传 PDF 使用
 
 ## 安装包内已包含（用户无需再装）
@@ -380,7 +378,7 @@ Also:
   {BASE / 'Paperfect_Setup.exe'}
   {ELECTRON_OUT / 'Paperfect-2.0.0-portable.exe'}  (optional portable)
 
-Remember: first launch → Settings → fill API URL / Key / Model.
+Remember: first launch → Settings → fill in the API Key only (URL/model are pinned).
 Windows 10/11 x64 only. No system Python/Node required.
 """
     )

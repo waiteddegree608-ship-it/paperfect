@@ -1,5 +1,7 @@
 # coding=utf-8
-"""CCF venue matching. JCR is proprietary — only applied from an optional local map."""
+"""CCF/JCR venue matching. Ships with a bundled CAS-partition (JCR) map sourced from
+the open-source ShowJCR project (https://github.com/hitfyd/ShowJCR); a local override
+file at data/jcr_venues.json takes precedence if present."""
 from __future__ import annotations
 
 import json
@@ -12,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 from backend.core.config import get_base_dir
 
 _NOISE = re.compile(
-    r"\b(proceedings|proc\.?|of the|ieee|acm|usenix|the|international|conference|"
+    r"\b(proceedings|proc\.?|of the|of|ieee|acm|usenix|the|international|conference|"
     r"workshop|symposium|journal|transactions|trans\.|vol\.?|volume|pp\.?|"
     r"pages?|doi|isbn)\b",
     re.I,
@@ -60,11 +62,21 @@ def load_ccf_catalog() -> Dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def load_jcr_map() -> Dict[str, str]:
-    """Optional local JCR mapping {normalized_or_acronym: 一区/二区/...}."""
+    """JCR/CAS partition mapping {journal_or_acronym: 一区/二区/三区/四区}.
+
+    Merges, in increasing priority (later files win on key conflicts):
+      1. backend/resources/jcr_venues.json - bundled dataset (~21.7k journals,
+         sourced from the open-source ShowJCR project's CAS partition table).
+      2. data/venue_dict.json - legacy hand-curated venue dict (also carries
+         CCF info elsewhere); its "jcr" entries (incl. informal picks for
+         top-tier CS conferences that don't have a real JCR listing) win.
+      3. data/jcr_venues.json - optional user override, highest priority.
+    """
+    out: Dict[str, str] = {}
     for rel in (
         os.path.join("backend", "resources", "jcr_venues.json"),
-        os.path.join("data", "jcr_venues.json"),
         os.path.join("data", "venue_dict.json"),
+        os.path.join("data", "jcr_venues.json"),
     ):
         path = os.path.join(get_base_dir(), rel)
         if not os.path.isfile(path):
@@ -74,22 +86,20 @@ def load_jcr_map() -> Dict[str, str]:
                 data = json.load(f)
         except Exception:
             continue
-        out = {}
-        if isinstance(data, dict):
-            for k, v in data.items():
-                jcr = ""
-                if isinstance(v, dict):
-                    jcr = str(v.get("jcr") or v.get("jcr_partition") or "").strip()
-                elif isinstance(v, str):
-                    jcr = v.strip()
-                if jcr and jcr not in ("无", "未知", "Unknown", "-"):
-                    out[k.upper()] = jcr
-                    nk = normalize_venue(k)
-                    if nk:
-                        out[nk] = jcr
-        if out:
-            return out
-    return {}
+        if not isinstance(data, dict):
+            continue
+        for k, v in data.items():
+            jcr = ""
+            if isinstance(v, dict):
+                jcr = str(v.get("jcr") or v.get("jcr_partition") or "").strip()
+            elif isinstance(v, str):
+                jcr = v.strip()
+            if jcr and jcr not in ("无", "未知", "Unknown", "-"):
+                out[k.upper()] = jcr
+                nk = normalize_venue(k)
+                if nk:
+                    out[nk] = jcr
+    return out
 
 
 def match_venue(venue: str) -> Tuple[str, str, str]:
