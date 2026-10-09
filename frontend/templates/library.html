@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Paperfect - 文献管理</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <!-- Apply saved theme/lang before paint (no flash of default theme) -->
+    <script>
+    (function () {
+        try {
+            var t = localStorage.getItem('theme') || 'antigravity';
+            var lang = localStorage.getItem('paperfect_lang') || 'zh';
+            document.documentElement.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
+            document.title = lang === 'en' ? 'Paperfect - Library' : 'Paperfect - 文献管理';
+            document.documentElement.setAttribute('data-theme', t);
+            var applyBody = function () {
+                if (document.body) document.body.setAttribute('data-theme', t);
+            };
+            applyBody();
+            document.addEventListener('DOMContentLoaded', applyBody);
+        } catch (e) {}
+    })();
+    </script>
+    
+    <!-- i18n must load before Vue -->
+    <script src="/static/js/i18n.js?v=20260908tabs4"></script>
+    <!-- LOCAL vendor (CDN is unreliable offline / in China -> blank UI) -->
+    <script src="/static/js/vendor/vue.global.prod.js"></script>
+    <script src="/static/js/vendor/vue-router.global.prod.js"></script>
+    <script src="/static/js/vendor/echarts.min.js"></script>
+    <script src="/static/js/vendor/marked.min.js"></script>
+    <script src="/static/js/tool_icons.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #282C34;
+            --text-color: #ABB2BF;
+            --header-bg: #194A50;
+            --header-border: #21252B;
+            --card-bg: #21252B;
+            --card-border: #21252B;
+            --card-hover-border: #3D71D9;
+            --primary-accent: #3D71D9; 
+            --primary-hover: #3D71D9;
+            --secondary-accent: #3D71D9; 
+            --text-muted: #ABB2BF;
+            --input-bg: #21252B;
+            --icon-btn-bg: #21252B;
+            --logo-color: #ABB2BF;
+            /* Reader tab bar background is intentionally its own variable (not
+               --header-bg) so light themes can use a neutral gray instead of
+               whatever tint the main nav header uses. */
+            --reader-tabbar-bg: #1c2027;
+        }
+
+        body[data-theme="antigravity"] {
+            --bg-color: #16161D; --text-color: #878AA2; --header-bg: #1A1B25; --header-border: #1A1B25;
+            --card-bg: #1A1B25; --card-border: #1A1B25; --card-hover-border: #6E88BD;
+            --primary-accent: #6E88BD; --primary-hover: #88D6CC; --secondary-accent: #88D6CC;
+            --text-muted: #878AA2; --input-bg: #1A1B25; --icon-btn-bg: #1A1B25;
+            --logo-color: #878AA2; --reader-tabbar-bg: #14151d;
+        }
+
+        body[data-theme="dark-plus"] {
+            --bg-color: #1E1E1E; --text-color: #CCCCCC; --header-bg: #1B4D54; --header-border: #181818;
+            --card-bg: #181818; --card-border: #181818; --card-hover-border: #3794ff;
+            --primary-accent: #3794ff; --primary-hover: #5ea3ff; --secondary-accent: #3794ff;
+            --text-muted: #CCCCCC; --input-bg: #181818; --icon-btn-bg: #181818;
+            --logo-color: #CCCCCC; --reader-tabbar-bg: #181818;
+        }
+
+        body[data-theme="cyan-light"] {
+            --bg-color: #FFFFFF; --text-color: #202224; --header-bg: #8EE8E6; --header-border: #F4F7F9;
+            --card-bg: #F4F7F9; --card-border: #F4F7F9; --card-hover-border: #39B2B2;
+            --primary-accent: #39B2B2; --primary-hover: #39B2B2; --secondary-accent: #39B2B2;
+            --text-muted: #202224; --input-bg: #F4F7F9; --icon-btn-bg: #F4F7F9;
+            --logo-color: #202224; --reader-tabbar-bg: #DCE1E6;
+        }
+
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif; 
+            margin: 0; padding: 0; 
+            height: 100vh;
+            background: var(--bg-color);
+            color: var(--text-color);
+            box-sizing: border-box;
+            transition: background 0.3s, color 0.3s;
+            overflow: hidden;
+        }
+        
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            position: relative;
+        }
+        /* Vue directives are inert until mount; hide the uncompiled reader shell
+           (otherwise the hibernate moon icon sits in the middle of a blank page). */
+        #app:not(.is-mounted) .reader-shell,
+        #app:not(.is-mounted) .reader-tabbar,
+        #app:not(.is-mounted) .reader-focus-fab {
+            display: none !important;
+        }
+        
+        /* Header (Old-Style Top Bar) */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 30px;
+            border-bottom: 2px solid var(--header-border);
+            background: var(--bg-color);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .project-logo {
+            width: 45px; height: 45px;
+            background-color: var(--logo-color);
+            -webkit-mask-image: url('/static/paperfect_logo.png');
+            -webkit-mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            -webkit-mask-position: center left;
+            mask-image: url('/static/paperfect_logo.png');
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center left;
+            transition: background-color 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .header-nav {
+            display: flex; gap: 4px; align-items: center;
+            background: var(--icon-btn-bg); border-radius: 10px;
+            padding: 3px; border: 1px solid var(--header-border);
+        }
+        .header-nav .nav-pill {
+            background: transparent; border: none;
+            color: var(--text-muted); border-radius: 8px;
+            padding: 8px 18px; cursor: pointer; transition: all 0.2s;
+            font-size: 14px; font-weight: 600;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+            white-space: nowrap;
+        }
+        .header-nav .nav-pill:hover { color: var(--text-color); background: rgba(255,255,255,0.05); }
+        .header-nav .nav-pill.active {
+            background: var(--primary-accent); color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .lang-switch {
+            display: flex; gap: 2px; align-items: center;
+            background: var(--icon-btn-bg); border-radius: 8px;
+            padding: 2px; border: 1px solid var(--header-border);
+        }
+        .lang-switch button {
+            background: transparent; border: none;
+            color: var(--text-muted); border-radius: 6px;
+            padding: 5px 10px; cursor: pointer; transition: all 0.2s;
+            font-size: 12px; font-weight: 700;
+            font-family: 'Inter', -apple-system, sans-serif;
+        }
+        .lang-switch button:hover { color: var(--text-color); }
+        .lang-switch button.active {
+            background: var(--primary-accent); color: #fff;
+        }
+
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+
+        .icon-btn {
+            background: var(--icon-btn-bg); border: 1px solid var(--header-border);
+            color: var(--text-color); border-radius: 8px; width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s; font-size: 14px;
+        }
+        .icon-btn:hover { border-color: var(--primary-accent); color: var(--primary-accent); }
+
+        /* Nav Tabs for 我的资料 / 自动分类 (old-style icon-btn look) */
+        .nav-tab {
+            background: var(--icon-btn-bg); border: 1px solid var(--header-border);
+            color: var(--text-color); border-radius: 8px;
+            padding: 0 18px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
+            font-size: 14px; font-weight: 600;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+            white-space: nowrap;
+        }
+        .nav-tab:hover { border-color: var(--primary-accent); color: var(--primary-accent); }
+        .nav-tab.active {
+            background: var(--primary-accent); color: #fff;
+            border-color: var(--primary-accent);
+        }
+
+        /* Layout Container */
+        .app-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+        }
+        /* Ensure router-view / page content fills remaining height and scrolls */
+        .app-container > * {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        /* ── Reader Workspace: browser-like tabbed PDF reading ── */
+        .reader-shell {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+            background: var(--bg-color);
+        }
+        .reader-tabbar {
+            display: flex;
+            align-items: stretch;
+            gap: 4px;
+            padding: 8px 10px 0;
+            background: var(--reader-tabbar-bg);
+            border-bottom: 2px solid var(--header-border);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        /* Middle strip: the only part that shrinks. No scrollbar — tabs shrink
+           to fit, browser-style, as more are opened. */
+        .reader-tabbar-tabs {
+            display: flex;
+            align-items: stretch;
+            gap: 4px;
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+        }
+        .reader-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 8px 7px 10px;
+            border-radius: 8px 8px 0 0;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-bottom: none;
+            cursor: pointer;
+            flex: 1 1 0;
+            min-width: 44px;
+            max-width: 200px;
+            overflow: hidden;
+            opacity: .68;
+            transition: opacity .15s, background .15s;
+        }
+        .reader-tab:hover { opacity: .9; }
+        .reader-tab.active { opacity: 1; background: var(--bg-color); box-shadow: 0 -2px 0 var(--primary-accent) inset; }
+        .reader-tab.dragging { opacity: .35; }
+        .reader-tab.drag-over { box-shadow: -2px 0 0 var(--primary-accent) inset; }
+        .reader-tab.hibernated .reader-tab-title { opacity: .55; }
+        .reader-tab.hibernated::after {
+            content: ''; flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+            border: 1.5px solid currentColor; opacity: .5; margin-left: -1px;
+        }
+        .reader-tab .reader-tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .reader-tab .reader-tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+        .reader-tab .reader-tab-close { flex-shrink: 0; opacity: .55; font-size: 15px; line-height: 1; padding: 0 2px; border-radius: 4px; }
+        .reader-tab .reader-tab-close:hover { opacity: 1; color: #f87171; background: rgba(248,113,113,0.12); }
+        .reader-tab.pinned-home {
+            min-width: auto; max-width: none; flex: 0 0 auto; border-radius: 8px; opacity: .85;
+            display: flex; align-items: center; justify-content: center; padding: 7px 10px;
+        }
+        .reader-tab.pinned-home svg { display: block; }
+        /* The pinned home tab doesn't need the same top accent bar as a regular
+           tab (it's a small icon-only square, and a full-width bar under it just
+           looks like a stray colored rectangle) — use a border tint instead. */
+        .reader-tab.pinned-home.active { box-shadow: none; border-color: var(--primary-accent); background: var(--card-bg); }
+        /* Manual drag-merge groups: connected pill made of same-color adjacent tabs */
+        .reader-tab.manual-grouped { box-shadow: 0 -2px 0 var(--group-color) inset; background: rgba(255,255,255,0.04); }
+        .reader-tab.manual-grouped.active { box-shadow: 0 -2px 0 var(--group-color) inset, 0 -2px 0 var(--primary-accent) inset; }
+        .reader-tab.manual-grouped.group-start { margin-right: -6px; padding-right: 12px; }
+        .reader-tab.manual-grouped:not(.group-start) { margin-left: -6px; border-left: 1px dashed transparent; padding-left: 12px; }
+        /* Smart-group chip: a compact, non-shrinking pill that stands in for a
+           whole collapsed group of tabs, or acts as a header above its expanded tabs. */
+        .reader-group-chip {
+            display: flex; align-items: center; gap: 6px;
+            padding: 0 10px; margin: 4px 0;
+            border-radius: 999px; background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            cursor: pointer; flex: 0 0 auto; max-width: 170px;
+            font-size: 11px; color: var(--text-color); transition: .15s;
+        }
+        .reader-group-chip:hover { border-color: var(--primary-accent); }
+        .reader-group-chip.has-active { border-color: var(--primary-accent); box-shadow: 0 0 0 1px var(--primary-accent); }
+        .reader-group-chip .chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .reader-group-chip .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 88px; }
+        .reader-group-chip .chip-count { opacity: .6; flex-shrink: 0; }
+        .reader-group-chip .chip-caret { flex-shrink: 0; opacity: .6; }
+        .reader-tabbar-actions {
+            display: flex; align-items: center; gap: 2px;
+            margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--header-border);
+            flex: 0 0 auto; align-self: center;
+        }
+        .reader-action-btn {
+            display: flex; align-items: center; gap: 5px;
+            height: 26px; padding: 0 10px; margin: 3px 0;
+            border-radius: 999px; background: transparent; border: 1px solid transparent;
+            color: var(--text-muted); font-size: 11px; white-space: nowrap;
+            cursor: pointer; transition: .15s;
+        }
+        .reader-action-btn:hover { background: var(--card-bg); color: var(--text-color); }
+        .reader-action-btn.active { background: var(--primary-accent); color: #fff; border-color: var(--primary-accent); }
+        .reader-action-btn svg { flex-shrink: 0; }
+        .reader-toolbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 12px; background: var(--header-bg); border-bottom: 1px solid var(--header-border);
+            flex-shrink: 0; font-size: 12px; color: var(--text-muted);
+        }
+        .reader-toolbar button.layout-btn { font-size: 12px; padding: 5px 10px; }
+
+        /* Focus reading: hide the library header + paper tabs so the PDF can
+           use the full 16:9 viewport. Tabs slide back when pinned. */
+        body.reader-focus-mode .header { display: none !important; }
+        body.reader-focus-mode .reader-tabbar {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            z-index: 60;
+            transform: translateY(-110%);
+            pointer-events: none;
+            transition: transform .18s ease;
+        }
+        body.reader-focus-mode.reader-tabs-pinned .reader-tabbar {
+            transform: none;
+            pointer-events: auto;
+        }
+        .reader-focus-fab {
+            display: none;
+            position: fixed;
+            top: 10px;
+            right: 14px;
+            z-index: 80;
+            align-items: center;
+            gap: 6px;
+        }
+        body.reader-focus-mode .reader-focus-fab { display: flex; }
+        .reader-focus-fab button {
+            display: flex; align-items: center; gap: 5px;
+            height: 28px; padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(20, 22, 30, 0.78);
+            color: #e5e7eb;
+            font-size: 11px;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.28);
+        }
+        .reader-focus-fab button:hover { border-color: var(--primary-accent); color: #fff; }
+        .reader-focus-fab button.active { background: var(--primary-accent); border-color: var(--primary-accent); color: #fff; }
+        body[data-theme="cyan-light"] .reader-focus-fab button {
+            background: rgba(255,255,255,0.88);
+            color: #202224;
+            border-color: rgba(0,0,0,0.12);
+        }
+        .reader-stage { flex: 1; position: relative; min-height: 0; background: #0b0e14; }
+        .reader-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+        /* ===== Paper Lineage dossier figures (hero / architecture) ===== */
+        .lineage-fig-frame {
+            width: 100%;
+            max-height: 280px;
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 8px;
+            border: 1px solid var(--header-border);
+            background: #0b0b10;
+        }
+        .lineage-fig-frame img {
+            max-width: 100%;
+            max-height: 280px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: block;
+        }
+        /* Title banner: the paper's most identifiable figure sits behind the
+           title/venue as a faint, blurred backdrop instead of a separate boxed
+           thumbnail — meant to read as "premium", not as a literal photo. */
+        .lineage-hero-banner {
+            position: relative;
+            border-radius: 14px;
+            overflow: hidden;
+            padding: 22px 26px;
+            margin-bottom: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+        }
+        .lineage-hero-bg {
+            position: absolute; inset: 0;
+            background-size: cover;
+            background-position: center 15%;
+            opacity: .16;
+            filter: saturate(0.9);
+            transform: scale(1.05);
+        }
+        .lineage-hero-content { position: relative; z-index: 1; }
+        /* Related-in-library cards: compact (so more fit on screen) with the
+           paper's own hero figure as a frosted-glass backdrop to help recall
+           which paper this is at a glance. */
+        .lineage-related-card {
+            position: relative;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+            background-color: var(--card-bg);
+            background-size: cover;
+            background-position: center;
+            transition: border-color .15s;
+        }
+        .lineage-related-card:hover { border-color: var(--card-hover-border); }
+        .lineage-related-card-overlay {
+            position: absolute; inset: 0;
+            background: var(--card-bg);
+            opacity: .84;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .lineage-related-card-content { position: relative; z-index: 1; }
+        .lineage-related-title {
+            font-size: 13px; font-weight: 600; color: var(--text-color);
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden; line-height: 1.4;
+        }
+        /* AI-generated Markdown (abstract / Q&A answers) */
+        .markdown-body { font-size: 14px; line-height: 1.7; color: var(--text-color); }
+        .markdown-body :first-child { margin-top: 0; }
+        .markdown-body :last-child { margin-bottom: 0; }
+        .markdown-body p { margin: 0 0 10px; }
+        .markdown-body ul, .markdown-body ol { margin: 0 0 10px; padding-left: 22px; }
+        .markdown-body li { margin-bottom: 4px; }
+        .markdown-body strong { color: var(--text-color); font-weight: 700; }
+        .markdown-body code { background: var(--input-bg); padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+        .markdown-body pre { background: var(--input-bg); padding: 10px; border-radius: 8px; overflow-x: auto; }
+        .markdown-body pre code { background: none; padding: 0; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 14px 0 8px; font-size: 14px; }
+        .markdown-body blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--card-border); color: var(--text-muted); }
+        .markdown-body a { color: var(--primary-accent); }
+        .reader-hibernated-placeholder {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 10px; color: var(--text-muted); font-size: 13px; background: var(--bg-color);
+        }
+
+        /* Sub Navigation Bar for Auto-Classification */
+        .sub-nav-bar {
+            display: flex;
+            gap: 15px;
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--header-border);
+        }
+
+        .sub-tab {
+            background: transparent;
+            border: 1px solid var(--header-border);
+            color: var(--text-color);
+            padding: 6px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .sub-tab.active {
+            background: var(--primary-accent);
+            color: #fff;
+            border-color: var(--primary-accent);
+        }
+
+        .sub-nav-bar .layout-btn {
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+            background: transparent;
+            border: 1px solid var(--header-border);
+            color: var(--text-color);
+            padding: 6px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .sub-nav-bar .layout-btn.active {
+            background: var(--primary-accent);
+            color: #fff;
+            border-color: var(--primary-accent);
+        }
+
+        /* Content Area */
+        .content-area {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .main-view {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .right-sidebar {
+            width: 300px;
+            border-left: 2px solid var(--header-border);
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ===== Upload Zone ===== */
+        .upload-zone {
+            border: 2px dashed rgba(255,255,255,0.15);
+            border-radius: 16px;
+            padding: 35px 30px;
+            margin-bottom: 30px;
+            display: flex; align-items: center; justify-content: center;
+            gap: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255,255,255,0.02);
+        }
+        .upload-zone:hover {
+            border-color: var(--primary-accent);
+            background: rgba(255,255,255,0.04);
+        }
+        .upload-zone.dragover {
+            border-color: var(--secondary-accent, var(--primary-accent));
+            background: rgba(255,255,255,0.06);
+            transform: scale(1.01);
+        }
+        .upload-zone svg { color: var(--primary-accent); flex-shrink: 0; }
+        .upload-zone-text { text-align: left; }
+        .upload-zone-text .main-text { font-size: 16px; font-weight: 600; color: var(--text-color); }
+        .upload-zone-text .sub-text { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+        /* ===== Section Headers ===== */
+        .section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 15px; margin-top: 10px;
+        }
+        .section-title {
+            font-size: 13px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        /* ===== Breadcrumb ===== */
+        .breadcrumb {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 14px; margin-bottom: 20px;
+            padding: 10px 16px;
+            background: var(--card-bg);
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+        }
+        .breadcrumb-item {
+            color: var(--primary-accent); cursor: pointer;
+            font-weight: 500; transition: 0.2s;
+        }
+        .breadcrumb-item:hover { text-decoration: underline; }
+        .breadcrumb-sep { color: var(--text-muted); font-size: 12px; }
+        .breadcrumb-current { color: var(--text-color); font-weight: 600; }
+
+        /* ===== Folder Grid ===== */
+        .folder-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .folder-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px 16px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            min-height: 100px;
+        }
+        .folder-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--card-hover-border);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+        .folder-card.drop-target {
+            border-color: var(--primary-accent) !important;
+            border-style: dashed !important;
+            background: rgba(110, 136, 189, 0.12);
+            transform: scale(1.03);
+            box-shadow: 0 0 0 2px var(--primary-accent);
+        }
+        .file-card[draggable="true"],
+        .recent-card[draggable="true"] {
+            cursor: grab;
+        }
+        .file-card[draggable="true"]:active,
+        .recent-card[draggable="true"]:active {
+            cursor: grabbing;
+            opacity: 0.75;
+        }
+        .drag-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+            margin-left: 10px;
+        }
+        .meta-pending-badge {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(241, 196, 15, 0.15);
+            color: #f1c40f;
+            border: 1px solid rgba(241, 196, 15, 0.35);
+        }
+        .folder-card .folder-icon {
+            width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .folder-card .folder-icon svg { width: 44px; height: 44px; }
+        .folder-card .folder-name {
+            font-size: 14px; font-weight: 600; color: var(--text-color);
+            text-align: center; word-break: break-word;
+            line-height: 1.3;
+        }
+        .folder-card .folder-count {
+            font-size: 12px; color: var(--text-muted);
+        }
+        .folder-card .folder-menu-btn {
+            position: absolute; top: 8px; right: 8px;
+            background: none; border: none; color: var(--text-muted);
+            font-size: 18px; cursor: pointer; padding: 2px 6px;
+            border-radius: 4px; opacity: 0; transition: 0.2s;
+            line-height: 1;
+        }
+        .folder-card:hover .folder-menu-btn { opacity: 1; }
+        .folder-card .folder-menu-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-color); }
+
+        /* Add Folder Card */
+        .folder-card.add-folder {
+            border-style: dashed;
+            border-color: rgba(255,255,255,0.15);
+            background: transparent;
+            justify-content: center;
+        }
+        .folder-card.add-folder:hover {
+            border-color: var(--primary-accent);
+            background: rgba(255,255,255,0.03);
+        }
+        .folder-card.add-folder .folder-icon svg {
+            width: 36px; height: 36px; color: var(--text-muted);
+        }
+        .folder-card.add-folder .folder-name { color: var(--text-muted); font-weight: 500; }
+
+        /* ===== Small inline spinner ===== */
+        @keyframes pf-spin { to { transform: rotate(360deg); } }
+        .pf-spinner {
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 2.5px solid var(--header-border);
+            border-top-color: var(--primary-accent);
+            animation: pf-spin 0.7s linear infinite;
+            display: inline-block;
+        }
+
+        /* ===== Context Menu ===== */
+        .context-menu {
+            position: fixed;
+            background: var(--card-bg);
+            border: 1px solid var(--header-border);
+            border-radius: 8px;
+            padding: 6px 0;
+            min-width: 140px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            z-index: 2000;
+        }
+        .context-menu-item {
+            padding: 8px 16px;
+            font-size: 13px;
+            color: var(--text-color);
+            cursor: pointer;
+            transition: 0.15s;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .context-menu-item:hover { background: rgba(255,255,255,0.08); }
+        .context-menu-item.danger { color: #e74c3c; }
+        .context-menu-item.danger:hover { background: rgba(231,76,60,0.1); }
+
+        /* ===== Recent Cards ===== */
+        .recent-scroll {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--header-border) transparent;
+        }
+        .recent-card {
+            width: 180px; height: 260px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            flex-shrink: 0;
+        }
+        .recent-card:hover { border-color: var(--primary-accent); transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.2); }
+        .recent-card img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+        .recent-card .card-title-bar {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            padding: 20px 10px 10px;
+            font-size: 12px; color: #fff; text-align: center;
+            line-height: 1.3;
+        }
+
+        /* ===== Folder Inner File Grid ===== */
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .file-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            height: 280px;
+            display: flex;
+            flex-direction: column;
+        }
+        .file-card:hover { transform: translateY(-6px); border-color: var(--card-hover-border); box-shadow: 0 8px 25px rgba(0,0,0,0.2); }
+        .file-card .file-cover {
+            flex: 1; width: 100%; overflow: hidden; background: #111;
+        }
+        .file-card .file-cover img { width: 100%; height: 100%; object-fit: cover; object-position: top; transition: transform 0.4s ease; }
+        .file-card:hover .file-cover img { transform: scale(1.05); }
+        .file-card .file-title {
+            padding: 12px; font-size: 13px; font-weight: 500;
+            color: var(--text-color); line-height: 1.4;
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+            border-top: 1px solid var(--card-border);
+        }
+
+        /* ===== Empty State ===== */
+        .empty-state {
+            text-align: center; padding: 60px 20px; color: var(--text-muted);
+        }
+        .empty-state svg { margin-bottom: 15px; opacity: 0.4; }
+        .empty-state .empty-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+        .empty-state .empty-sub { font-size: 13px; opacity: 0.7; }
+
+        /* ===== Document List Styling ===== */
+        .doc-list-item {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: 0.2s;
+            cursor: pointer;
+        }
+        .doc-list-item:hover {
+            border-color: var(--card-hover-border);
+        }
+        .doc-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .doc-abstract {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.5;
+        }
+        .doc-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .tag-badge {
+            background: var(--primary-accent);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .recent-card {
+            width: 180px; height: 260px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            flex-shrink: 0;
+        }
+        .recent-card:hover { border-color: var(--primary-accent); transform: translateY(-4px); box-shadow: 0 8px 25px rgba(0,0,0,0.2); }
+        .recent-card img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+
+        /* Settings Modal reused for Upload Modal */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
+            display: flex; justify-content: center; align-items: center;
+            opacity: 0; pointer-events: none; transition: 0.3s; z-index: 1000;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background: var(--header-bg); border: 1px solid var(--header-border);
+            border-radius: 12px; padding: 30px; width: 450px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .modal-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; font-size: 18px; color: var(--text-color); }
+        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; }
+        
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+        .form-group select, .form-group input {
+            width: 100%; box-sizing: border-box; background: var(--input-bg);
+            border: 1px solid var(--header-border); color: var(--text-color);
+            padding: 10px 12px; border-radius: 8px; outline: none;
+        }
+        .key-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .remove-key-btn { 
+            background: var(--input-bg); border: 1px solid var(--danger-color); 
+            color: var(--danger-color); border-radius: 8px; width: 40px; cursor: pointer; transition: 0.2s;
+            display: flex; align-items: center; justify-content: center; font-size: 18px;
+        }
+        .remove-key-btn:hover { background: var(--danger-color); color: #fff; }
+        .add-key-btn {
+            background: var(--input-bg); border: 1px dashed var(--primary-accent);
+            color: var(--primary-accent); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+            width: 100%; transition: 0.2s; font-family: 'Inter'; font-weight: 500;
+        }
+        .add-key-btn:hover { background: var(--primary-accent); color: #fff; border-style: solid; }
+        .form-section-title { font-size: 14px; font-weight: 600; color: var(--primary-accent); margin: 25px 0 10px; }
+        
+        .save-btn {
+            width: 100%; background: var(--primary-accent); border: none;
+            padding: 12px; border-radius: 8px; color: #fff; font-weight: 600; cursor: pointer;
+        }
+        
+        .delete-btn {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(255, 0, 0, 0.7); color: white;
+            border: none; border-radius: 4px; width: 30px; height: 30px;
+            font-size: 16px; cursor: pointer; display: none; z-index: 10;
+        }
+        .recent-card:hover .delete-btn { display: block; }
+        .doc-list-item { position: relative; }
+        .doc-list-item:hover .delete-btn { display: block; }
+        .file-card:hover .delete-btn { display: block !important; }
+
+
+        /* Right Sidebar Checkboxes & Buttons */
+        .filter-section {
+            border: 1px solid var(--header-border);
+            padding: 10px;
+        }
+        .filter-title {
+            background: var(--header-bg);
+            padding: 4px 8px;
+            font-size: 12px;
+            margin: -10px -10px 10px -10px;
+            border-bottom: 1px solid var(--header-border);
+        }
+        .checkbox-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 14px;
+        }
+        .checkbox-row input {
+            width: 16px; height: 16px; accent-color: var(--primary-accent);
+        }
+
+        /* Toolbox modal (batch PDF tools, usable without opening a paper) */
+        .toolbox-modal { width: 900px; max-width: 92vw; max-height: 88vh; overflow-y: auto; }
+        .toolbox-body { display: grid; grid-template-columns: 300px 1fr; gap: 22px; margin-top: 6px; }
+        @media (max-width: 760px) { .toolbox-body { grid-template-columns: 1fr; } }
+        .tb-panel-left, .tb-panel-right { display: flex; flex-direction: column; min-width: 0; }
+        .tb-section-title { font-size: 12px; color: var(--text-muted); margin: 14px 0 6px; font-weight: 600; }
+        .tb-panel-left .tb-section-title:first-of-type { margin-top: 4px; }
+        .tb-panel-left input[type="text"] {
+            width: 100%; box-sizing: border-box; background: var(--input-bg);
+            border: 1px solid var(--header-border); color: var(--text-color);
+            padding: 8px 10px; border-radius: 8px; outline: none; margin-bottom: 8px; font-size: 13px;
+        }
+        .tb-dropzone {
+            border: 1.5px dashed var(--header-border); border-radius: 10px; padding: 16px 12px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            color: var(--text-muted); font-size: 12.5px; text-align: center; cursor: pointer;
+            transition: 0.2s; background: var(--input-bg);
+        }
+        .tb-dropzone svg { width: 24px; height: 24px; color: var(--primary-accent); }
+        .tb-dropzone:hover, .tb-dropzone.dragover { border-color: var(--primary-accent); color: var(--text-color); }
+        .tb-local-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 96px; overflow-y: auto; }
+        .tb-local-item {
+            display: flex; align-items: center; gap: 8px; background: var(--input-bg);
+            border: 1px solid var(--header-border); border-radius: 8px; padding: 5px 8px; font-size: 12.5px;
+        }
+        .tb-local-item .tb-ic { width: 15px; height: 15px; color: var(--primary-accent); flex-shrink: 0; display: flex; }
+        .tb-local-item .tb-ic svg { width: 15px; height: 15px; }
+        .tb-local-item .tb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color); }
+        .tb-local-item .tb-remove { cursor: pointer; color: var(--text-muted); width: 14px; height: 14px; flex-shrink: 0; display: flex; }
+        .tb-local-item .tb-remove svg { width: 14px; height: 14px; }
+        .tb-local-item .tb-remove:hover { color: var(--danger-color); }
+        .tb-doc-list {
+            flex: 1; min-height: 120px; max-height: 220px; overflow-y: auto;
+            border: 1px solid var(--header-border); border-radius: 8px; padding: 6px;
+        }
+        .tb-tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .tb-tool-card {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            padding: 14px 6px; border-radius: 12px; border: 1px solid var(--header-border);
+            background: var(--input-bg); color: var(--text-color); cursor: pointer; transition: 0.15s;
+            text-align: center; font-size: 12px; min-height: 74px;
+        }
+        .tb-tool-card svg { width: 21px; height: 21px; color: var(--text-muted); transition: 0.15s; }
+        .tb-tool-card:hover { border-color: var(--primary-accent); transform: translateY(-1px); }
+        .tb-tool-card.active { border-color: var(--primary-accent); background: var(--primary-accent); color: #fff; }
+        .tb-tool-card.active svg { color: #fff; }
+        .tb-result { margin-top: 10px; font-size: 13px; color: var(--text-muted); word-break: break-all; }
+        .tb-result a { color: var(--primary-accent); }
+        
+        /* Segmented Buttons for JCR/CCF */
+        .segmented-control {
+            display: flex;
+            width: 100%;
+        }
+        .segmented-control button {
+            flex: 1;
+            background: var(--card-bg);
+            border: 1px solid var(--header-border);
+            color: var(--text-color);
+            padding: 6px 0;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: -1px; /* collapse borders */
+        }
+        .segmented-control button.active {
+            background: var(--primary-accent);
+            color: #fff;
+        }
+        .segmented-control button:first-child { margin-left: 0; }
+
+        /* Theme selector is now in header-actions, remove floating wrapper */
+
+        /* ── Prompt Management ── */
+        .prompts-layout {
+            display: flex; gap: 0; height: calc(100vh - 70px); overflow: hidden;
+        }
+        .prompts-sidebar {
+            width: 240px; min-width: 200px; background: var(--card-bg);
+            border-right: 1px solid var(--header-border);
+            display: flex; flex-direction: column; flex-shrink: 0;
+        }
+        .prompts-sidebar-header {
+            padding: 16px; border-bottom: 1px solid var(--header-border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .prompts-sidebar-title { font-weight: 600; font-size: 14px; color: var(--text-color); }
+        .prompts-add-btn {
+            width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--header-border);
+            background: var(--icon-btn-bg); color: var(--primary-accent); font-size: 18px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .prompts-add-btn:hover { background: var(--primary-accent); color: #fff; }
+        .prompts-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+        .prompts-item {
+            padding: 10px 14px; border-radius: 8px; cursor: pointer; transition: all 0.2s;
+            color: var(--text-color); font-size: 14px; font-family: 'Inter', sans-serif;
+        }
+        .prompts-item:hover { background: rgba(255,255,255,0.05); }
+        .prompts-item.active { background: var(--primary-accent); color: #fff; font-weight: 500; }
+
+        .prompts-editor {
+            flex: 1; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .prompts-empty-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: var(--text-muted); font-size: 14px;
+        }
+        .prompts-editor-header {
+            padding: 16px 24px; border-bottom: 1px solid var(--header-border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .prompts-editor-title { font-size: 14px; color: var(--text-color); }
+        .prompts-editor-title strong { color: var(--secondary-accent); font-size: 16px; margin-left: 6px; }
+
+        .prompts-btn-danger {
+            background: rgba(223, 89, 83, 0.1); color: var(--danger-color, #DF5953);
+            border: 1px solid rgba(223, 89, 83, 0.4); border-radius: 6px;
+            padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500;
+            font-family: 'Inter', sans-serif; transition: all 0.2s;
+        }
+        .prompts-btn-danger:hover { background: rgba(223, 89, 83, 0.25); }
+        .prompts-btn-save {
+            background: var(--primary-accent); color: #fff; border: none; border-radius: 6px;
+            padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
+            font-family: 'Inter', sans-serif; transition: all 0.2s;
+        }
+        .prompts-btn-save:hover { filter: brightness(1.15); }
+
+        .prompts-segments {
+            flex: 1; overflow-y: auto; padding: 24px;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+        .prompts-segment-card {
+            background: var(--bg-color); border: 1px solid var(--header-border);
+            border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+            transition: border-color 0.2s;
+        }
+        .prompts-segment-card:focus-within { border-color: var(--primary-accent); }
+        .prompts-segment-head {
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .prompts-segment-title-input {
+            background: transparent; border: none; color: var(--primary-accent);
+            font-weight: bold; font-size: 15px; outline: none; flex: 1;
+            font-family: 'Inter', sans-serif;
+        }
+        .prompts-segment-del {
+            background: transparent; border: none; color: var(--danger-color, #DF5953);
+            cursor: pointer; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif;
+            opacity: 0.6; transition: opacity 0.2s;
+        }
+        .prompts-segment-del:hover { opacity: 1; }
+        .prompts-segment-text {
+            background: var(--input-bg); border: 1px solid var(--header-border);
+            border-radius: 8px; color: var(--text-color); font-size: 14px; padding: 12px;
+            resize: vertical; min-height: 80px; outline: none;
+            font-family: 'Inter', sans-serif; line-height: 1.6; transition: border-color 0.2s;
+        }
+        .prompts-segment-text:focus { border-color: var(--primary-accent); }
+
+        .prompts-add-segment-btn {
+            background: var(--icon-btn-bg); border: 1px dashed var(--header-border);
+            color: var(--text-color); padding: 12px; border-radius: 10px; cursor: pointer;
+            font-weight: 600; font-family: 'Inter', sans-serif; font-size: 14px;
+            transition: all 0.2s; text-align: center;
+        }
+        .prompts-add-segment-btn:hover {
+            background: var(--card-hover-border); border-style: solid;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <a href="/" :title="t('nav.back_home')"><div class="project-logo"></div></a>
+                <div class="header-nav">
+                    <button class="nav-pill" :class="{active: currentMainTab === 'dashboard' || currentMainTab === 'auto'}" @click="switchMainTab('dashboard')" v-text="t('nav.library')"></button>
+                    <button class="nav-pill" :class="{active: currentMainTab === 'prompts'}" @click="switchMainTab('prompts')" v-text="t('nav.prompts')"></button>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="lang-switch">
+                    <button :class="{active: lang === 'zh'}" @click="switchLang('zh')">中</button>
+                    <button :class="{active: lang === 'en'}" @click="switchLang('en')">EN</button>
+                </div>
+                <select v-model="currentTheme" @change="changeTheme" style="background: var(--input-bg); color: var(--text-color); border: 1px solid var(--header-border); border-radius: 8px; padding: 6px 12px; font-family: 'Inter'; outline: none; transition: 0.2s;">
+                    <optgroup label="Core Themes">
+                        <option value="antigravity">Neon</option>
+                        <option value="dark-plus">Dark+</option>
+                        <option value="cyan-light">Cyan Light</option>
+                    </optgroup>
+                </select>
+                                <button class="icon-btn" @click="toggleDarkLight" :title="t('nav.toggle_theme')" style="font-size:16px;">
+                    <svg v-if="isLightTheme" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                </button>
+                <button class="nav-tab" :class="{active: currentMainTab === 'dashboard'}" @click="switchMainTab('dashboard')" v-text="t('nav.my_files')" v-show="currentMainTab !== 'prompts'"></button>
+                <button class="nav-tab" :class="{active: currentMainTab === 'auto'}" @click="switchMainTab('auto')" v-text="t('nav.auto_classify')" v-show="currentMainTab !== 'prompts'"></button>
+                <button class="icon-btn" @click="openToolbox" :title="t('toolbox.title')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                </button>
+                <button class="icon-btn" @click="openSettings" :title="t('nav.settings')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+                <a href="https://github.com/waiteddegree608-ship-it/paperfect" target="_blank" :title="t('nav.github')" class="icon-btn" style="text-decoration:none; color: var(--text-color);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.379.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z"/></svg>
+                </a>
+            </div>
+        </div>
+
+        <!-- Reader tab bar: always visible once at least one paper tab is open -->
+        <div class="reader-tabbar" v-if="readerTabs.length > 0">
+            <div class="reader-tab pinned-home" :class="{active: !readerWorkspaceVisible}" @click="showLibraryFromReader" :title="t('nav.my_files')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+            </div>
+            <div class="reader-tabbar-tabs">
+                <template v-for="item in groupedReaderTabs" :key="item.type === 'chip' ? ('chip-' + item.key) : item.tab.book">
+                    <div v-if="item.type === 'chip'" class="reader-group-chip" :class="{'has-active': item.hasActive}"
+                         @click="toggleGroupCollapse(item.key)" :title="item.label + ' · ' + item.count">
+                        <span class="chip-dot" :style="{background: item.color}"></span>
+                        <span class="chip-label" v-text="item.label"></span>
+                        <span class="chip-count" v-text="item.count"></span>
+                        <svg class="chip-caret" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                            <polyline v-if="item.collapsed" points="9 6 15 12 9 18"></polyline>
+                            <polyline v-else points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                    <div v-else class="reader-tab"
+                         :class="{active: readerWorkspaceVisible && activeReaderBook === item.tab.book, hibernated: item.tab.hibernated, dragging: draggingBook === item.tab.book, 'manual-grouped': item.manualGroup, 'group-start': item.groupStart, 'group-end': item.groupEnd}"
+                         :style="item.manualGroup ? {'--group-color': groupColor(item.tab)} : {}"
+                         :draggable="!smartGroupOn"
+                         :title="(item.tab.hibernated ? tabDisplayTitle(item.tab) + ' (' + t('reader.hibernated_hint') + ')' : tabDisplayTitle(item.tab)) + (!smartGroupOn ? '\n' + t('reader.drag_merge_hint') : '')"
+                         @click="switchReaderTab(item.tab.book)"
+                         @contextmenu.prevent.stop="showTabContextMenu($event, item.tab.book)"
+                         @dragstart="onTabDragStart($event, item.tab.book)"
+                         @dragover.prevent="onTabDragOver($event, item.tab.book)"
+                         @drop.prevent="onTabDrop($event, item.tab.book)"
+                         @dragend="onTabDragEnd">
+                        <span class="reader-tab-dot" :style="{background: groupColor(item.tab)}"></span>
+                        <span class="reader-tab-title" v-text="tabDisplayTitle(item.tab)"></span>
+                        <span class="reader-tab-close" @click.stop="closeReaderTab(item.tab.book)">&times;</span>
+                    </div>
+                </template>
+            </div>
+            <div class="reader-tabbar-actions">
+                <button class="reader-action-btn" :class="{active: readerFocusMode}" @click="toggleReaderFocusMode" :title="t('reader.focus_mode_hint')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M16 3h3a2 2 0 0 1 2 2v3"></path><path d="M8 21H5a2 2 0 0 1-2-2v-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+                    <span v-text="readerFocusMode ? t('reader.exit_focus') : t('reader.focus_mode')"></span>
+                </button>
+                <button class="reader-action-btn" :class="{active: smartGroupOn}" @click="toggleSmartGroup" :title="t('reader.smart_group')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                    <span v-text="t('reader.smart_group')"></span>
+                </button>
+                <button class="reader-action-btn" @click="closeAllReaderTabs" :title="t('reader.close_all')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                    <span v-text="t('reader.close_all')"></span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Reader tab context menu (right-click) -->
+        <div class="context-menu" id="readerTabContextMenu" style="display:none;">
+            <div class="context-menu-item" @click="ctxCloseTab" v-text="t('reader.ctx_close')"></div>
+            <div class="context-menu-item" @click="ctxCloseOthers" v-text="t('reader.ctx_close_others')"></div>
+            <div class="context-menu-item" @click="ctxCloseRight" v-text="t('reader.ctx_close_right')"></div>
+            <div class="context-menu-item" v-if="contextMenuTargetHasGroup" @click="ctxUngroup" v-text="t('reader.ctx_ungroup')"></div>
+            <div class="context-menu-item danger" @click="ctxCloseAllFromMenu" v-text="t('reader.ctx_close_all')"></div>
+        </div>
+
+        <div class="app-container" v-show="!readerWorkspaceVisible">
+            <router-view></router-view>
+        </div>
+
+        <!-- Reader Workspace: hosts one iframe per open paper tab, hibernates idle ones -->
+        <div class="reader-focus-fab" v-show="readerFocusMode && readerWorkspaceVisible">
+            <button :class="{active: focusTabbarPinned}" @click="toggleFocusTabs" :title="focusTabbarPinned ? t('reader.hide_tabs') : t('reader.show_tabs')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+                <span v-text="focusTabbarPinned ? t('reader.hide_tabs') : t('reader.show_tabs')"></span>
+            </button>
+            <button @click="toggleReaderFocusMode" :title="t('reader.exit_focus')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"></path><path d="M21 8h-3a2 2 0 0 1-2-2V3"></path><path d="M3 16h3a2 2 0 0 1 2 2v3"></path><path d="M16 21v-3a2 2 0 0 1 2-2h3"></path></svg>
+                <span v-text="t('reader.exit_focus')"></span>
+            </button>
+        </div>
+
+        <div class="reader-shell" v-show="readerWorkspaceVisible">
+            <div class="reader-stage">
+                <div v-for="tab in readerTabs" :key="tab.book" v-show="activeReaderBook === tab.book" style="position:absolute;inset:0;">
+                    <iframe v-if="!tab.hibernated" :src="readerFrameSrc(tab)" :title="tabDisplayTitle(tab)" @load="broadcastReaderFocus"></iframe>
+                    <div v-else class="reader-hibernated-placeholder">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                        <div v-text="t('reader.hibernated_hint')"></div>
+                        <button class="layout-btn" @click="wakeReaderTab(tab.book)" v-text="t('reader.wake')"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        
+        <!-- Create Folder Modal -->
+        <div class="modal-overlay" id="createFolderModal">
+            <div class="modal-content" style="width: 360px;">
+                <div class="modal-header">
+                    <h2 data-i18n="folder.create"></h2>
+                    <button class="close-btn" onclick="document.getElementById('createFolderModal').classList.remove('active')">&times;</button>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="folder.name_label"></label>
+                    <input type="text" id="newFolderName" data-i18n-placeholder="folder.name_placeholder" autofocus>
+                </div>
+                <button class="save-btn" id="createFolderBtn" data-i18n="folder.confirm_create"></button>
+            </div>
+        </div>
+
+        <!-- Rename Folder Modal -->
+        <div class="modal-overlay" id="renameFolderModal">
+            <div class="modal-content" style="width: 360px;">
+                <div class="modal-header">
+                    <h2 data-i18n="folder.rename"></h2>
+                    <button class="close-btn" onclick="document.getElementById('renameFolderModal').classList.remove('active')">&times;</button>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="folder.new_name_label"></label>
+                    <input type="text" id="renameFolderInput" data-i18n-placeholder="folder.new_name_placeholder">
+                </div>
+                <button class="save-btn" id="renameFolderBtn" data-i18n="folder.confirm_rename"></button>
+            </div>
+        </div>
+
+        <!-- Context Menu (positioned via JS) -->
+        <div class="context-menu" id="folderContextMenu" style="display:none;">
+            <div class="context-menu-item" id="ctxRename" data-i18n="folder.ctx_rename"></div>
+            <div class="context-menu-item danger" id="ctxDelete" data-i18n="folder.ctx_delete"></div>
+        </div>
+
+        <!-- Upload Modal (Injected to the root) -->
+        <div class="modal-overlay" id="uploadModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 data-i18n="upload.title">上传文献</h2>
+                    <button class="close-btn" onclick="document.getElementById('uploadModal').classList.remove('active')">&times;</button>
+                </div>
+                <p id="selectedFileName" style="color:var(--text-muted); font-size:13px; margin-top:0; word-break: break-all;"></p>
+                <ul id="selectedFileList" style="max-height:120px;overflow:auto;padding-left:18px;margin:0 0 12px;color:var(--text-muted);font-size:12px;"></ul>
+                
+                <input type="hidden" id="upload_item_type" value="paper">
+                
+                <div class="form-group">
+                    <label data-i18n="upload.folder_label">存入文件夹</label>
+                    <div style="display:flex; gap:10px;">
+                        <select id="upload_folder_select" style="flex:1;">
+                            <option value="" data-i18n="upload.folder_default">默认文件夹</option>
+                            <!-- Dynamically populated via JS -->
+                        </select>
+                        <input type="text" id="upload_folder_new" data-i18n-placeholder="upload.folder_new_placeholder" placeholder="或新建文件夹..." style="flex:1;">
+                    </div>
+                </div>
+
+                <div id="paper_options_group" style="background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; border: 1px dashed var(--header-border); margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label data-i18n="upload.prompt_label">选择提示词方案</label>
+                        <select id="upload_prompt">
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label data-i18n="upload.language_label">生成语言 / Output Language</label>
+                        <select id="upload_language">
+                            <option value="zh" data-i18n="upload.lang_zh" selected>中文 / Chinese</option>
+                            <option value="en" data-i18n="upload.lang_en">英文 / English</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label data-i18n="upload.stages_label">处理阶段（默认全开）</label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_translate" checked> <span data-i18n="upload.do_translate">翻译 PDF</span></label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_annotate" checked> <span data-i18n="upload.do_annotate">AI 批注</span></label>
+                        <label class="checkbox-row"><input type="checkbox" id="upload_do_ppt" checked> <span data-i18n="upload.do_ppt">制作 PPT</span></label>
+                    </div>
+                </div>
+                <input type="hidden" id="upload_ppt_mode" value="creative">
+                
+                <button class="save-btn" id="finalUploadBtn" data-i18n="upload.confirm">确认并开始上传</button>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div class="modal-overlay" id="settingsModal">
+            <div class="modal-content" style="width: 500px; max-height: 90vh; overflow-y: auto;">
+                <div class="modal-header">
+                    <h2 data-i18n="settings.title">账户设置</h2>
+                    <button class="close-btn" onclick="document.getElementById('settingsModal').classList.remove('active')">&times;</button>
+                </div>
+
+                <p>各任务可独立设置服务地址、模型与 Key。地址填写 API Base URL（通常以 /v1 结尾）。新任务使用保存后的配置。<br><small>Configure each task separately. Changes apply to new jobs.</small></p>
+                <div id="provider_settings"></div>
+                <button type="button" class="add-key-btn" onclick="window.copyParseProvider()">将解析配置应用到所有任务 / Apply parse provider to all</button>
+                <p id="settings_error" role="alert" style="color:#ef4444;"></p>
+
+                <button class="save-btn" id="settingsSaveBtn" onclick="window.saveSettings()" data-i18n="settings.save_btn">保存配置并全局生效</button>
+            </div>
+        </div>
+
+        <!-- Toolbox Modal (batch PDF tools usable without opening a paper) -->
+        <div class="modal-overlay" id="toolboxModal">
+            <div class="modal-content toolbox-modal">
+                <div class="modal-header">
+                    <h2 data-i18n="toolbox.title">工具箱</h2>
+                    <button class="close-btn" onclick="document.getElementById('toolboxModal').classList.remove('active')">&times;</button>
+                </div>
+
+                <div class="toolbox-body">
+                    <div class="tb-panel-left">
+                        <div class="tb-dropzone" id="toolbox-dropzone">
+                            <span id="tb-dropzone-icon"></span>
+                            <div data-i18n="toolbox.dropzone_text">拖拽 PDF 到此处，或点击选择本地文件</div>
+                        </div>
+                        <input type="file" id="toolbox-file-input" accept="application/pdf" multiple style="display:none;">
+                        <div class="tb-local-list" id="toolbox-local-list"></div>
+
+                        <div class="tb-section-title" data-i18n="toolbox.pick_docs">从文献库选择</div>
+                        <input type="text" id="toolbox-doc-search" data-i18n-placeholder="toolbox.search_placeholder" placeholder="搜索标题 / 文件名...">
+                        <div id="toolbox-doc-list" class="tb-doc-list"></div>
+                    </div>
+
+                    <div class="tb-panel-right">
+                        <div class="tb-section-title" data-i18n="toolbox.pick_tool">选择工具</div>
+                        <div class="tb-tool-grid" id="toolbox-tool-grid"></div>
+                        <div class="form-group" id="toolbox-params"></div>
+                        <button class="save-btn" id="toolboxRunBtn" onclick="window.runToolboxTool()" data-i18n="toolbox.run">执行</button>
+                        <div id="toolbox-result" class="tb-result"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <script>
+        window.__paperfectBootErrors = [];
+        function showBootBanner(text) {
+            var box = document.getElementById('boot-error-banner');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'boot-error-banner';
+                box.style.cssText = 'position:fixed;left:16px;right:16px;bottom:16px;z-index:99999;background:#7f1d1d;color:#fff;padding:12px 16px;border-radius:10px;font:13px/1.45 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);white-space:pre-wrap;';
+                document.body.appendChild(box);
+            }
+            box.textContent = text;
+        }
+        window.addEventListener('error', function (e) {
+            try {
+                var msg = (e && (e.message || (e.error && e.error.message))) || String(e);
+                window.__paperfectBootErrors.push(msg);
+                var tpl = (window.t && window.t('boot.ui_error', { msg: msg })) || ('UI script error: ' + msg);
+                showBootBanner(tpl);
+            } catch (_) {}
+        });
+        setTimeout(function () {
+            try {
+                if (window.__paperfectMounted) return;
+                if (window.__paperfectBootErrors.length) return;
+                var nav = document.querySelector('.nav-pill');
+                var emptyNav = nav && !(nav.textContent || '').trim();
+                if (!emptyNav) return;
+                var fallback = (window.t && window.t('boot.script_failed')) || 'UI script failed to load. Fully quit Paperfect and restart, or press F12.';
+                showBootBanner(fallback);
+            } catch (_) {}
+        }, 2500);
+    </script>
+    <script src="/static/js/library/main.js?v=20261009providers"></script>
+</body>
+</html>

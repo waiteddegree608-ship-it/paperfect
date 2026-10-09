@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "paperfect": {
+      "command": "C:/path/to/paperfect/venv/Scripts/python.exe",
+      "args": [
+        "C:/path/to/paperfect/paperfect_agent/server.py"
+      ],
+      "env": {
+        "PAPERFECT_ROOT": "C:/path/to/paperfect",
+        "PAPERFECT_WORK_DIR": "C:/path/to/research-output"
+      }
+    }
+  }
+}

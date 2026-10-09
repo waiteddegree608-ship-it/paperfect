@@ -1,0 +1,44 @@
+{
+  "name": "paperfect-agent-pack",
+  "version": "1.1.0",
+  "description": "MCP server + Cursor/Claude skills for the Paperfect academic PDF pipeline. Portable: other projects register the MCP and copy skills/; they do not need the Electron UI.",
+  "mcp": {
+    "server": "server.py",
+    "transport": "stdio",
+    "env": [
+      "PAPERFECT_ROOT",
+      "PAPERFECT_WORK_DIR"
+    ],
+    "tools": [
+      "health",
+      "ingest_pdf",
+      "list_papers",
+      "get_artifacts",
+      "read_artifact",
+      "detect_body_range",
+      "analyze_metadata",
+      "extract_figures",
+      "parse_paper",
+      "translate_pdf",
+      "annotate_pdf",
+      "generate_ppt",
+      "run_pipeline",
+      "ask_paper",
+      "search_library",
+      "list_prompts",
+      "pdf_tool",
+      "list_skills",
+      "read_skill",
+      "translate_reading",
+      "generate_notes"
+    ]
+  },
+  "skills": [
+    "skills/paperfect-pipeline",
+    "skills/paperfect-reading",
+    "skills/paperfect-library",
+    "skills/paperfect-prompts",
+    "skills/paperfect-authoring"
+  ],
+  "generation_skills": "../backend/skills"
+}
